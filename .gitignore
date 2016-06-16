@@ -42,3 +42,6 @@ venv/
 
 # Default database
 data.db
+
+# Instance config file
+config.ini

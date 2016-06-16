@@ -4,6 +4,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy import (
     Column,
     String,
+    Text,
     Integer,
     DateTime,
     ForeignKey,
@@ -56,6 +57,20 @@ class Author(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String)
     goodreads_id = Column(Integer)
+
+
+class BookReview(Base):
+    __tablename__ = 'book_reviews'
+
+    id = Column(Integer, primary_key=True)
+    review_date = Column(DateTime)
+    rating = Column(Integer)
+    review_text = Column(Text)
+
+    user_id = Column(Integer, ForeignKey('users.id'))
+    user = relationship('User', back_populates='reviews')
+    book_id = Column(Integer, ForeignKey('books.id'))
+    book = relationship('Book', back_populates='reviews')
 
 
 class BookAssignment(Base):
