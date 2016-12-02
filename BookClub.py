@@ -1,12 +1,12 @@
 # Standard Library
 import logging
 import os.path
-from threading import Thread
-from time import sleep
+import re
 import configparser
 
 # 3rd Party Libraries
-import twx.botapi
+from twx import botapi
+from twx.botapi.helpers.update_loop import UpdateLoop
 
 # My Packages
 import database
@@ -17,27 +17,20 @@ class BookClubBot:
         self.config = config
         self.database = database.Database()
         self.logger = logging.Logger("BookClubBot")
-        self.twx = twx.botapi.TelegramBot(self.config['BookClubBot']['bot_token'])
-        self.thread = Thread(target=self.main_loop)
+
+        self.bot = botapi.TelegramBot(token=self.config['BookClubBot']['bot_token'])
+        self.bot.update_bot_info().wait()
+
+        self.update_loop = UpdateLoop(self.bot, self)
+
+        self.update_loop.register_command(name='add_book', function=self.add_book)
+        self.update_loop.register_command(name='addbook', function=self.add_book)
 
     def run(self):
-        self.thread.run()
-        return self
+        self.update_loop.run()  # Run update loop and register as handler
 
-    def main_loop(self):
-        last_update = 0
-        while True:
-            # Process Telegram Events
-            updates = self.twx.get_updates(last_update).wait()
-            if updates:
-                for update in updates:
-                    if update:
-                        last_update = update.update_id + 1
-                        self.process_request(update)
-            sleep(.1)
-
-    def process_request(self, message):
-        pass
+    def add_book(self, bot, msg, **kwargs):
+        print("Adding book! " + msg.text)
 
 
 if __name__ == '__main__':

@@ -14,15 +14,14 @@ from sqlalchemy import (
 class Database(object):
     def __init__(self):
         self.db = create_engine('sqlite:///data.db', echo=True)
-        Base.metadata.create_all(self.db)
-
+        Base.metadata.create_all(self.db, checkfirst=True)
 
 # Models
 Base = declarative_base()
 
 
 class Chat(Base):
-    __tablename__ = 'chats'
+    __tablename__ = 'chat'
 
     id = Column(Integer, primary_key=True)
     type = Column(String)
@@ -31,7 +30,7 @@ class Chat(Base):
 
 
 class User(Base):
-    __tablename__ = 'users'
+    __tablename__ = 'user'
 
     id = Column(Integer, primary_key=True)
     first_name = Column(String)
@@ -40,19 +39,19 @@ class User(Base):
 
 
 class Book(Base):
-    __tablename__ = 'books'
+    __tablename__ = 'book'
 
     id = Column(Integer, primary_key=True)
     title = Column(String)
     isbn = Column(String)
     goodreads_id = Column(Integer)
 
-    author_id = Column(Integer, ForeignKey('authors.id'))
+    author_id = Column(Integer, ForeignKey('author.id'))
     author = relationship('Author', back_populates='books')
 
 
 class Author(Base):
-    __tablename__ = 'authors'
+    __tablename__ = 'author'
 
     id = Column(Integer, primary_key=True)
     name = Column(String)
@@ -60,41 +59,41 @@ class Author(Base):
 
 
 class BookReview(Base):
-    __tablename__ = 'book_reviews'
+    __tablename__ = 'book_review'
 
     id = Column(Integer, primary_key=True)
     review_date = Column(DateTime)
     rating = Column(Integer)
     review_text = Column(Text)
 
-    user_id = Column(Integer, ForeignKey('users.id'))
+    user_id = Column(Integer, ForeignKey('user.id'))
     user = relationship('User', back_populates='reviews')
-    book_id = Column(Integer, ForeignKey('books.id'))
+    book_id = Column(Integer, ForeignKey('book.id'))
     book = relationship('Book', back_populates='reviews')
 
 
 class BookAssignment(Base):
-    __tablename__ = 'book_assignments'
+    __tablename__ = 'book_assignment'
 
     id = Column(Integer, primary_key=True)
     schedule_type = Column(String)
     start_date = Column(DateTime)
 
-    book_id = Column(Integer, ForeignKey('books.id'))
+    book_id = Column(Integer, ForeignKey('book.id'))
     book = relationship('Book', back_populates='assignments')
-    chat_id = Column(Integer, ForeignKey('chats.id'))
+    chat_id = Column(Integer, ForeignKey('chat.id'))
     chat = relationship('Chat', back_populates='assignments')
 
 
 class BookSchedule(Base):
-    __tablename__ = 'book_schedules'
+    __tablename__ = 'book_schedule'
 
     id = Column(Integer, primary_key=True)
     due_date = Column(DateTime)
     start = Column(Integer)
     end = Column(Integer)
 
-    book_assignment_id = Column(Integer, ForeignKey('book_assignments.id'))
+    book_assignment_id = Column(Integer, ForeignKey('book_assignment.id'))
     book_assignment = relationship('BookAssignment', back_populates='schedules')
 
 
@@ -106,14 +105,14 @@ class UserParticipation(Base):
     join_date = Column(DateTime)
     edition = Column(String)
 
-    user_id = Column(Integer, ForeignKey('users.id'))
+    user_id = Column(Integer, ForeignKey('user.id'))
     user = relationship('User', back_populates='participation')
-    book_assignment_id = Column(Integer, ForeignKey('book_assignments.id'))
+    book_assignment_id = Column(Integer, ForeignKey('book_assignment.id'))
     book_assignment = relationship('BookAssignment', back_populates='participation')
 
 
 class ProgressUpdate(Base):
-    __tablename__ = 'progress_updates'
+    __tablename__ = 'progress_update'
 
     id = Column(Integer, primary_key=True)
 
