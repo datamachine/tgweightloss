@@ -10,11 +10,19 @@ from sqlalchemy import (
     ForeignKey,
 )
 
+from sqlalchemy.orm import (
+    scoped_session,
+    sessionmaker,
+    relationship,
+    backref
+    )
+
 
 class Database(object):
     def __init__(self):
         self.db = create_engine('sqlite:///data.db', echo=True)
         Base.metadata.create_all(self.db, checkfirst=True)
+        self.session = scoped_session(sessionmaker(expire_on_commit=False, ))
 
 # Models
 Base = declarative_base()
