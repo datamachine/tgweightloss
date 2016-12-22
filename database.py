@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
 from sqlalchemy import (
     Column,
     String,
@@ -14,7 +13,6 @@ from sqlalchemy.orm import (
     scoped_session,
     sessionmaker,
     relationship,
-    backref
     )
 
 
@@ -22,7 +20,7 @@ class Database(object):
     def __init__(self):
         self.db = create_engine('sqlite:///data.db', echo=True)
         Base.metadata.create_all(self.db, checkfirst=True)
-        self.session = scoped_session(sessionmaker(expire_on_commit=False, ))
+        self.session = scoped_session(sessionmaker(expire_on_commit=False, bind=self.db))
 
 # Models
 Base = declarative_base()
@@ -55,7 +53,7 @@ class Book(Base):
     goodreads_id = Column(Integer)
 
     author_id = Column(Integer, ForeignKey('author.id'))
-    author = relationship('Author', back_populates='books')
+    author = relationship('Author', backref='books')
 
 
 class Author(Base):
@@ -75,9 +73,9 @@ class BookReview(Base):
     review_text = Column(Text)
 
     user_id = Column(Integer, ForeignKey('user.id'))
-    user = relationship('User', back_populates='reviews')
+    user = relationship('User', backref='reviews')
     book_id = Column(Integer, ForeignKey('book.id'))
-    book = relationship('Book', back_populates='reviews')
+    book = relationship('Book', backref='reviews')
 
 
 class BookAssignment(Base):
@@ -88,9 +86,9 @@ class BookAssignment(Base):
     start_date = Column(DateTime)
 
     book_id = Column(Integer, ForeignKey('book.id'))
-    book = relationship('Book', back_populates='assignments')
+    book = relationship('Book', backref='assignments')
     chat_id = Column(Integer, ForeignKey('chat.id'))
-    chat = relationship('Chat', back_populates='assignments')
+    chat = relationship('Chat', backref='assignments')
 
 
 class BookSchedule(Base):
@@ -102,7 +100,7 @@ class BookSchedule(Base):
     end = Column(Integer)
 
     book_assignment_id = Column(Integer, ForeignKey('book_assignment.id'))
-    book_assignment = relationship('BookAssignment', back_populates='schedules')
+    book_assignment = relationship('BookAssignment', backref='schedules')
 
 
 class UserParticipation(Base):
@@ -114,9 +112,9 @@ class UserParticipation(Base):
     edition = Column(String)
 
     user_id = Column(Integer, ForeignKey('user.id'))
-    user = relationship('User', back_populates='participation')
+    user = relationship('User', backref='participation')
     book_assignment_id = Column(Integer, ForeignKey('book_assignment.id'))
-    book_assignment = relationship('BookAssignment', back_populates='participation')
+    book_assignment = relationship('BookAssignment', backref='participation')
 
 
 class ProgressUpdate(Base):
@@ -128,4 +126,4 @@ class ProgressUpdate(Base):
     progress = Column(Integer)  # TODO: Progress in pages? Maybe track as percent? Edition is available.
 
     participation_id = Column(Integer, ForeignKey('user_participation.id'))
-    participation = relationship('UserParticipation', back_populates='updates')
+    participation = relationship('UserParticipation', backref='updates')
