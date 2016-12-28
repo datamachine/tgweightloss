@@ -1,6 +1,6 @@
 setup_group - Setup group on bot.
 add_book - Add new book to group list
-set_book - Set active book in group list
+start_book - Set active book in group list
 register_ebook - Set the ebook for the active book
 register_audiobook - Set the audiobook for the active book
 set_due_date - Set the due date for the next reading deadline

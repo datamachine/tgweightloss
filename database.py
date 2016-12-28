@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine
+
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import (
     Column,
@@ -7,6 +8,7 @@ from sqlalchemy import (
     Integer,
     DateTime,
     ForeignKey,
+    Boolean,
 )
 
 from sqlalchemy.orm import (
@@ -19,8 +21,8 @@ from sqlalchemy.orm import (
 class Database(object):
     def __init__(self):
         self.db = create_engine('sqlite:///data.db', echo=True)
+        self.Session = scoped_session(sessionmaker(expire_on_commit=False, bind=self.db))
         Base.metadata.create_all(self.db, checkfirst=True)
-        self.session = scoped_session(sessionmaker(expire_on_commit=False, bind=self.db))
 
 # Models
 Base = declarative_base()
@@ -55,6 +57,10 @@ class Book(Base):
     author_id = Column(Integer, ForeignKey('author.id'))
     author = relationship('Author', backref='books')
 
+    @property
+    def friendly_name(self):
+        return f"{self.author.name} - {self.title}"
+
 
 class Author(Base):
     __tablename__ = 'author'
@@ -84,6 +90,8 @@ class BookAssignment(Base):
     id = Column(Integer, primary_key=True)
     schedule_type = Column(String)
     start_date = Column(DateTime)
+    done = Column(Boolean, default=False)
+    current = Column(Boolean, default=False)
 
     book_id = Column(Integer, ForeignKey('book.id'))
     book = relationship('Book', backref='assignments')
