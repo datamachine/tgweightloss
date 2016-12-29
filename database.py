@@ -1,5 +1,3 @@
-from sqlalchemy import create_engine
-
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import (
     Column,
@@ -17,12 +15,7 @@ from sqlalchemy.orm import (
     relationship,
     )
 
-
-class Database(object):
-    def __init__(self):
-        self.db = create_engine('sqlite:///data.db', echo=True)
-        self.Session = scoped_session(sessionmaker(expire_on_commit=False, bind=self.db))
-        Base.metadata.create_all(self.db, checkfirst=True)
+DBSession = scoped_session(sessionmaker(expire_on_commit=False))
 
 # Models
 Base = declarative_base()
