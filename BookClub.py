@@ -11,7 +11,7 @@ from twx.botapi.helpers.update_loop import UpdateLoop, Scope, Permission
 
 # My Packages
 from database import *
-
+from sqlalchemy import engine_from_config
 
 def require_group(f):
     @wraps(f)
@@ -89,11 +89,8 @@ class BookClubBot:
         self.update_loop.register_reply_watch(message_id=query.message_id, function=partial(self.add_book__set_title, msg.text))
 
     def add_book__set_title(self, author_name, msg, arguments, **kwargs):
-
-
         # TODO: Look up the book, maybe another group has entered it?
-
-        author = self.db.Session.query(Author).filter(Author.name == author_name).first()  #  TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
+        author = DBSession.query(Author).filter(Author.name == author_name).first()  # TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
                                                                                    # ("Arthur C Clarke" vs "Arthur C. Clarke" vs "Sir Arthur C Clarke")
         if not author:
             author = Author()
@@ -197,6 +194,9 @@ if __name__ == '__main__':
         exit("Config file not found!")
     configfile = configparser.ConfigParser()
     configfile.read('config.ini')
+
+    engine = engine_from_config(configfile['BookClubBot'], 'sqlalchemy.')
+    DBSession.configure(bind=engine)
 
     mybot = BookClubBot(configfile)
     mybot.run()
