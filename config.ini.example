@@ -1,2 +1,3 @@
 [BookClubBot]
 bot_token = BOT-TOKEN
+sqlalchemy.url = postgresql+psycopg2://bookclub:bookclub@localhost/bookclub

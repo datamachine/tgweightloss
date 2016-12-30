@@ -16,7 +16,7 @@ from sqlalchemy import engine_from_config
 def require_group(f):
     @wraps(f)
     def wrapper(*args, **kwds):
-        chat = args[0].db.Session.query(Chat).filter(Chat.id == args[1].chat.id).first()
+        chat = DBSession.query(Chat).filter(Chat.id == args[1].chat.id).first()
         if not chat:
             args[0].bot.send_message(chat_id=args[1].chat.id, text="Can't run this command without registering first. Please run /setup_group",
                                      reply_to_message_id=args[1].message_id)
@@ -27,7 +27,6 @@ def require_group(f):
 class BookClubBot:
     def __init__(self, config):
         self.config = config
-        self.db = Database()
         self.logger = logging.Logger("BookClubBot")
 
         self.bot = botapi.TelegramBot(token=self.config['BookClubBot']['bot_token'])
@@ -58,7 +57,7 @@ class BookClubBot:
     # Admin Commands
     def setup_group(self, msg, arguments, **kwargs):
         if msg.chat.type in ["group", "supergroup"]:
-            chat = self.db.Session.query(Chat).filter(Chat.id == msg.chat.id).first()
+            chat = DBSession.query(Chat).filter(Chat.id == msg.chat.id).first()
             if not chat:
                 chat = Chat()
                 chat.id = msg.chat.id
@@ -66,8 +65,8 @@ class BookClubBot:
                 chat.username = msg.chat.username
                 chat.title = msg.chat.title
 
-                self.db.Session.add(chat)
-                self.db.Session.commit()
+                DBSession.add(chat)
+                DBSession.commit()
 
                 self.bot.send_message(chat_id=msg.chat.id, text="Registered!", reply_to_message_id=msg.message_id)
             else:
@@ -80,38 +79,38 @@ class BookClubBot:
     def add_book(self, msg, arguments, **kwargs):
         query = self.bot.send_message(chat_id=msg.chat.id, text="Author of book to add?",
                                       reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
-        self.update_loop.register_reply_watch(message_id=query.message_id, function=self.add_book__set_author)
+        self.update_loop.register_reply_watch(message=query, function=self.add_book__set_author)
 
     def add_book__set_author(self, msg, arguments, **kwargs):
         # TODO: Validate text?
         query = self.bot.send_message(chat_id=msg.chat.id, text="Title of book to add?",
                                       reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
-        self.update_loop.register_reply_watch(message_id=query.message_id, function=partial(self.add_book__set_title, msg.text))
+        self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_title, msg.text))
 
     def add_book__set_title(self, author_name, msg, arguments, **kwargs):
         # TODO: Look up the book, maybe another group has entered it?
         author = DBSession.query(Author).filter(Author.name == author_name).first()  # TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
-                                                                                   # ("Arthur C Clarke" vs "Arthur C. Clarke" vs "Sir Arthur C Clarke")
+                                                                                     # ("Arthur C Clarke" vs "Arthur C. Clarke" vs "Sir Arthur C Clarke")
         if not author:
             author = Author()
             author.name = author_name
 
-            self.db.Session.add(author)
+            DBSession.add(author)
 
-        book = self.db.Session.query(Book).filter(Book.title == msg.text).first()  # TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
+        book = DBSession.query(Book).filter(Book.title == msg.text).first()  # TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
         if not book:
             book = Book()
             book.author = author
             book.title = msg.text
-            self.db.Session.add(book)
+            DBSession.add(book)
 
-        assignment = self.db.Session.query(BookAssignment).filter(BookAssignment.book_id == book.id).filter(BookAssignment.chat_id == msg.chat.id).first()
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id == book.id).filter(BookAssignment.chat_id == msg.chat.id).first()
         if not assignment:
             assignment = BookAssignment()
             assignment.book = book
             assignment.chat_id = msg.chat.id
-            self.db.Session.add(assignment)
-            self.db.Session.commit()
+            DBSession.add(assignment)
+            DBSession.commit()
             self.bot.send_message(chat_id=msg.chat.id, text=f"Added book to the group: {book.friendly_name}", reply_to_message_id=msg.message_id)
 
     @require_group
@@ -132,8 +131,8 @@ class BookClubBot:
 
     @require_group
     def start_book(self, msg, arguments, **kwargs):
-        open_books = self.db.Session.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).filter(BookAssignment.current == False).all()
-        current_book = self.db.Session.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
+        open_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).filter(BookAssignment.current == False).all()
+        current_book = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
 
         if len(open_books) == 0:
             self.bot.send_message(chat_id=msg.chat.id, text="There are no open books to start.",
@@ -147,28 +146,30 @@ class BookClubBot:
             reply += f"There are currently {len(current_book)} active books. \n"
         reply += "Which book do you want to set as active?"
 
-        keyboard = []
+        # TODO: Support a "More" button.
+        keyboard_rows = []
         for book_assign in open_books:
-            keyboard.append([book_assign.book.friendly_name])
+            keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.book.id))])
+
+        keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
         query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
-                                      reply_markup=botapi.ReplyKeyboardMarkup.create(keyboard, one_time_keyboard=True, resize_keyboard=True, selective=True),
-                                      reply_to_message_id=msg.message_id).join().result
-        self.update_loop.register_reply_watch(message_id=query.message_id, function=self.start_book__select_book)
+                                      reply_markup=keyboard).join().result
+        self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.start_book__select_book, permission=Permission.SameUser)
+        pass
 
-    def start_book__select_book(self, msg, arguments, **kwargs):
-        author_name, book_name = msg.text.split(' - ', maxsplit=1)
-        assignment = self.db.Session.query(BookAssignment).join(Book).join(Author).filter(Book.title == book_name).filter(Author.name == author_name).filter(BookAssignment.chat_id == msg.chat.id).first()
+    def start_book__select_book(self, cbquery, data, **kwargs):
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id==int(data)).first()
 
         if not assignment:
-            self.bot.send_message(chat_id=msg.chat.id, text="Error starting book, cannot find it in DB.")
+            self.bot.send_message(chat_id=cbquery.message.chat.id, text="Error starting book, cannot find it in DB.")
 
         assignment.current = True
 
-        self.db.Session.add(assignment)
-        self.db.Session.commit()
+        DBSession.add(assignment)
+        DBSession.commit()
 
-        self.bot.send_message(chat_id=msg.chat.id, text=f"Starting book {assignment.book.friendly_name}.")
+        self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Starting book {assignment.book.friendly_name}.")
 
     # User Commands
     @require_group
@@ -185,8 +186,34 @@ class BookClubBot:
 
     @require_group
     def join_book(self, msg, arguments, **kwargs):
-        print("Joined a book! " + msg.text)
+        current_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
+        reply = "Which book do you want to set as active?"
 
+        keyboard_rows = []
+        for book_assign in current_books:
+            keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.book.id))])
+
+        keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+        query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
+                                      reply_markup=keyboard).join().result
+        self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.join_book__select_book, permission=Permission.SameUser)
+
+    def join_book__select_book(self, cbquery, data, **kwargs):
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id==int(data)).first()
+
+        if not assignment:
+            self.bot.send_message(chat_id=cbquery.message.chat.id, text="Error joining book, cannot find it in DB.")
+
+        participation = UserParticipation()
+        participation.book_assignment = assignment
+        participation.user = User.create_or_get()
+
+        DBSession.add(participation)
+        DBSession.commit()
+
+        self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
+                                   text=f"@{cbquery.sender.username} joined book {assignment.book.friendly_name}!")
 
 if __name__ == '__main__':
     # Run as script
@@ -197,6 +224,7 @@ if __name__ == '__main__':
 
     engine = engine_from_config(configfile['BookClubBot'], 'sqlalchemy.')
     DBSession.configure(bind=engine)
+    Base.metadata.create_all(engine)
 
     mybot = BookClubBot(configfile)
     mybot.run()

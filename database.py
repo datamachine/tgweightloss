@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Boolean,
+    func
 )
 
 from sqlalchemy.orm import (
@@ -110,7 +111,7 @@ class UserParticipation(Base):
 
     id = Column(Integer, primary_key=True)
 
-    join_date = Column(DateTime)
+    join_date = Column(DateTime, default=func.now())
     edition = Column(String)
 
     user_id = Column(Integer, ForeignKey('user.id'))
