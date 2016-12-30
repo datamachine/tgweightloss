@@ -154,7 +154,7 @@ class BookClubBot:
         keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
         query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
-                                      reply_markup=keyboard).join().result
+                                      reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
         self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.start_book__select_book, permission=Permission.SameUser)
         pass
 
@@ -187,7 +187,26 @@ class BookClubBot:
     @require_group
     def join_book(self, msg, arguments, **kwargs):
         current_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
-        reply = "Which book do you want to set as active?"
+
+        if len(current_books) == 0:
+            self.bot.send_message(chat_id=msg.chat.id, text="No books are currently being read!", reply_to_message_id=msg.message_id)
+            return
+
+        if len(current_books) == 1:
+            user = User.create_or_get(msg.sender)
+            participation = UserParticipation()
+            participation.book_assignment = current_books[0]
+            participation.user = User.create_or_get(user)
+
+            DBSession.add(participation)
+            DBSession.commit()
+
+            self.bot.send_message(chat_id=msg.chat.id,
+                                  text=f"@{msg.sender.username} joined book {current_books[0].book.friendly_name}!",
+                                  reply_to_message_id=msg.message_id)
+            return
+
+        reply = "Which book do you want to join?"
 
         keyboard_rows = []
         for book_assign in current_books:
@@ -196,18 +215,19 @@ class BookClubBot:
         keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
         query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
-                                      reply_markup=keyboard).join().result
+                                      reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
         self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.join_book__select_book, permission=Permission.SameUser)
 
     def join_book__select_book(self, cbquery, data, **kwargs):
         assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id==int(data)).first()
+        user = User.create_or_get(cbquery.sender)
 
         if not assignment:
             self.bot.send_message(chat_id=cbquery.message.chat.id, text="Error joining book, cannot find it in DB.")
 
         participation = UserParticipation()
         participation.book_assignment = assignment
-        participation.user = User.create_or_get()
+        participation.user = user
 
         DBSession.add(participation)
         DBSession.commit()

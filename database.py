@@ -40,6 +40,20 @@ class User(Base):
     last_name = Column(String)
     username = Column(String)
 
+    @staticmethod
+    def create_or_get(sender):
+        user = DBSession.query(User).filter(User.id == sender.id).first()
+        if not user:
+            user = User()
+            user.id = sender.id
+        user.username = sender.username
+        user.first_name = sender.first_name
+        user.last_name = sender.last_name
+
+        DBSession.add(user)
+        DBSession.commit()
+
+        return user
 
 class Book(Base):
     __tablename__ = 'book'
