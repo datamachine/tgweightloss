@@ -16,8 +16,7 @@ from database import *
 def require_group(f):
     @wraps(f)
     def wrapper(*args, **kwds):
-        session = args[0].db.Session()
-        chat = session.query(Chat).filter(Chat.id == args[1].chat.id).first()
+        chat = args[0].db.Session.query(Chat).filter(Chat.id == args[1].chat.id).first()
         if not chat:
             args[0].bot.send_message(chat_id=args[1].chat.id, text="Can't run this command without registering first. Please run /setup_group",
                                      reply_to_message_id=args[1].message_id)
@@ -58,10 +57,8 @@ class BookClubBot:
 
     # Admin Commands
     def setup_group(self, msg, arguments, **kwargs):
-        session = self.db.Session()
-
         if msg.chat.type in ["group", "supergroup"]:
-            chat = session.query(Chat).filter(Chat.id == msg.chat.id).first()
+            chat = self.db.Session.query(Chat).filter(Chat.id == msg.chat.id).first()
             if not chat:
                 chat = Chat()
                 chat.id = msg.chat.id
@@ -69,8 +66,8 @@ class BookClubBot:
                 chat.username = msg.chat.username
                 chat.title = msg.chat.title
 
-                session.add(chat)
-                session.commit()
+                self.db.Session.add(chat)
+                self.db.Session.commit()
 
                 self.bot.send_message(chat_id=msg.chat.id, text="Registered!", reply_to_message_id=msg.message_id)
             else:
@@ -92,32 +89,32 @@ class BookClubBot:
         self.update_loop.register_reply_watch(message_id=query.message_id, function=partial(self.add_book__set_title, msg.text))
 
     def add_book__set_title(self, author_name, msg, arguments, **kwargs):
-        session = self.db.Session()
+
 
         # TODO: Look up the book, maybe another group has entered it?
 
-        author = session.query(Author).filter(Author.name == author_name).first()  #  TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
+        author = self.db.Session.query(Author).filter(Author.name == author_name).first()  #  TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
                                                                                    # ("Arthur C Clarke" vs "Arthur C. Clarke" vs "Sir Arthur C Clarke")
         if not author:
             author = Author()
             author.name = author_name
 
-            session.add(author)
+            self.db.Session.add(author)
 
-        book = session.query(Book).filter(Book.title == msg.text).first()  # TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
+        book = self.db.Session.query(Book).filter(Book.title == msg.text).first()  # TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
         if not book:
             book = Book()
             book.author = author
             book.title = msg.text
-            session.add(book)
+            self.db.Session.add(book)
 
-        assignment = session.query(BookAssignment).filter(BookAssignment.book_id == book.id).filter(BookAssignment.chat_id == msg.chat.id).first()
+        assignment = self.db.Session.query(BookAssignment).filter(BookAssignment.book_id == book.id).filter(BookAssignment.chat_id == msg.chat.id).first()
         if not assignment:
             assignment = BookAssignment()
             assignment.book = book
             assignment.chat_id = msg.chat.id
-            session.add(assignment)
-            session.commit()
+            self.db.Session.add(assignment)
+            self.db.Session.commit()
             self.bot.send_message(chat_id=msg.chat.id, text=f"Added book to the group: {book.friendly_name}", reply_to_message_id=msg.message_id)
 
     @require_group
@@ -138,10 +135,8 @@ class BookClubBot:
 
     @require_group
     def start_book(self, msg, arguments, **kwargs):
-        session = self.db.Session()
-
-        open_books = session.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).filter(BookAssignment.current == False).all()
-        current_book = session.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
+        open_books = self.db.Session.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).filter(BookAssignment.current == False).all()
+        current_book = self.db.Session.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
 
         if len(open_books) == 0:
             self.bot.send_message(chat_id=msg.chat.id, text="There are no open books to start.",
@@ -165,18 +160,16 @@ class BookClubBot:
         self.update_loop.register_reply_watch(message_id=query.message_id, function=self.start_book__select_book)
 
     def start_book__select_book(self, msg, arguments, **kwargs):
-        session = self.db.Session()
-
         author_name, book_name = msg.text.split(' - ', maxsplit=1)
-        assignment = session.query(BookAssignment).join(Book).join(Author).filter(Book.title == book_name).filter(Author.name == author_name).filter(BookAssignment.chat_id == msg.chat.id).first()
+        assignment = self.db.Session.query(BookAssignment).join(Book).join(Author).filter(Book.title == book_name).filter(Author.name == author_name).filter(BookAssignment.chat_id == msg.chat.id).first()
 
         if not assignment:
             self.bot.send_message(chat_id=msg.chat.id, text="Error starting book, cannot find it in DB.")
 
         assignment.current = True
 
-        session.add(assignment)
-        session.commit()
+        self.db.Session.add(assignment)
+        self.db.Session.commit()
 
         self.bot.send_message(chat_id=msg.chat.id, text=f"Starting book {assignment.book.friendly_name}.")
 

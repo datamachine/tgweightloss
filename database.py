@@ -20,7 +20,7 @@ from sqlalchemy.orm import (
 
 class Database(object):
     def __init__(self):
-        self.db = create_engine('sqlite:///data.db', echo=True)
+        self.db = create_engine('postgresql+psycopg2://', echo=True)
         self.Session = scoped_session(sessionmaker(expire_on_commit=False, bind=self.db))
         Base.metadata.create_all(self.db, checkfirst=True)
 
