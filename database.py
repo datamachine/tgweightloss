@@ -17,6 +17,9 @@ from sqlalchemy.orm import (
     relationship,
     )
 
+from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
+
+
 
 DBSession = scoped_session(sessionmaker(expire_on_commit=False))
 
@@ -157,6 +160,10 @@ class UserParticipation(Base):
     book_assignment = relationship('BookAssignment', backref='participation')
 
     active = Column(Boolean, default=True)
+
+    @hybrid_property
+    def book(self):
+        return self.book_assignment.book
 
 class ProgressUpdate(Base):
     __tablename__ = 'progress_update'

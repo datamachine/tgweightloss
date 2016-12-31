@@ -237,7 +237,7 @@ class BookClubBot:
             self.bot.send_message(chat_id=msg.chat.id, text="You are not currently reading any books!", reply_to_message_id=msg.message_id)
 
         elif len(joined_books) == 1:
-            book = joined_books[0].book_assignment.book
+            book = joined_books[0].book
             if progress is not None:
                 try:
                     self._set_progress(joined_books[0].id, progress)
@@ -256,7 +256,7 @@ class BookClubBot:
 
             keyboard_rows = []
             for participation in joined_books:
-                keyboard_rows.append([botapi.InlineKeyboardButton(text=participation.book_assignment.book.friendly_name, callback_data=str(participation.id))])
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=participation.book.friendly_name, callback_data=str(participation.id))])
 
             keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
@@ -265,7 +265,7 @@ class BookClubBot:
             self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.set_progress__select_book, msg.message_id, progress), permission=Permission.SameUser)
 
     def set_progress__select_book(self, original_msg_id, progress, cbquery, data):
-        book = DBSession.query(UserParticipation).filter(UserParticipation.id == data).first().book_assignment.book
+        book = DBSession.query(UserParticipation).filter(UserParticipation.id == data).first().book
 
         if progress is not None:
             try:
@@ -288,7 +288,7 @@ class BookClubBot:
             progress = None
 
         if progress is not None:
-            book = DBSession.query(UserParticipation).filter(UserParticipation.id == participation_id).first().book_assignment.book
+            book = DBSession.query(UserParticipation).filter(UserParticipation.id == participation_id).first().book
             try:
                 self._set_progress(participation_id, progress)
                 self.bot.send_message(chat_id=msg.chat.id, text=f"Progress set for {book.friendly_name}!", reply_to_message_id=msg.message_id)
@@ -383,7 +383,7 @@ class BookClubBot:
 
             keyboard_rows = []
             for participation in books:
-                keyboard_rows.append([botapi.InlineKeyboardButton(text=participation.book_assignment.book.friendly_name, callback_data=str(participation.id))])
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=participation.book.friendly_name, callback_data=str(participation.id))])
             keyboard_rows.append([botapi.InlineKeyboardButton(text="Cancel", callback_data="CANCEL")])
             keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
@@ -406,7 +406,7 @@ class BookClubBot:
             DBSession.commit()
 
             self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
-                                       text=f"@{cbquery.sender.username} has quit book {participation.book_assignment.book.friendly_name}!")
+                                       text=f"@{cbquery.sender.username} has quit book {participation.book.friendly_name}!")
     # endregion
 
     def _bug_workaround(self):
