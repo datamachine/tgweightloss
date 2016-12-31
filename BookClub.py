@@ -32,6 +32,7 @@ class BookClubBot:
 
         self.update_loop = UpdateLoop(self.bot, self)
 
+        # region command registration
         # Admin Commands
         self.update_loop.register_command(name='add_book', permission=Permission.Admin, function=self.add_book)
         self.update_loop.register_command(name='start_book', permission=Permission.Admin, function=self.start_book)
@@ -45,11 +46,13 @@ class BookClubBot:
         self.update_loop.register_command(name='set_progress', function=self.set_progress)
         self.update_loop.register_command(name='get_progress',  function=self.get_progress)
         self.update_loop.register_command(name='get_due_date',  function=self.get_due_date)
+        # endregion
 
     def run(self):
         self.update_loop.run()  # Run update loop and register as handler
 
     # Admin Commands
+    # region add_book command
     @update_metadata
     def add_book(self, msg, arguments, **kwargs):
         query = self.bot.send_message(chat_id=msg.chat.id, text="Author of book to add?",
@@ -87,19 +90,27 @@ class BookClubBot:
             DBSession.add(assignment)
             DBSession.commit()
             self.bot.send_message(chat_id=msg.chat.id, text=f"Added book to the group: {book.friendly_name}", reply_to_message_id=msg.message_id)
+    # endregion
 
+    # region register_ebook command
     @update_metadata
     def register_ebook(self, msg, arguments, **kwargs):
         print("Registering Ebook! " + msg.text)
+    # endregion
 
+    # region register_audiobook command
     @update_metadata
     def register_audiobook(self, msg, arguments, **kwargs):
         print("Registering Audiobook! " + msg.text)
+    # endregion
 
+    # region set_due_date command
     @update_metadata
     def set_due_date(self, msg, arguments, **kwargs):
         print("Setting Due date! " + msg.text)
+    # endregion
 
+    # region start_book command
     @update_metadata
     def start_book(self, msg, arguments, **kwargs):
         open_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).filter(BookAssignment.current == False).all()
@@ -140,12 +151,16 @@ class BookClubBot:
         DBSession.commit()
 
         self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Starting book {assignment.book.friendly_name}.")
+    # endregion
 
     # User Commands
+    # region get_progress command
     @update_metadata
     def get_progress(self, msg, arguments, **kwargs):
         print("Getting progress! " + msg.text)
+    # endregion
 
+    # region set_progress command
     @update_metadata
     def set_progress(self, msg, arguments, **kwargs):
         user = User.create_or_get(msg.sender)
@@ -173,14 +188,28 @@ class BookClubBot:
 
     def set_progress__select_book(self, cbquery, data, **kwargs):
         pass
+    # endregion
 
+    # region get_due_date command
     @update_metadata
     def get_due_date(self, msg, arguments, **kwargs):
         print("Getting due date! " + msg.text)
+    # endregion
 
+    # region get_book command
     @update_metadata
     def get_book(self, msg, arguments, **kwargs):
         print("Getting a book! " + msg.text)
+    # endregion
+
+    # region join_book command
+    def _join_book(self, user_id, assignment):
+        participation = UserParticipation()
+        participation.book_assignment = assignment
+        participation.user_id = user_id
+
+        DBSession.add(participation)
+        DBSession.commit()
 
     @update_metadata
     def join_book(self, msg, arguments, **kwargs):
@@ -188,33 +217,24 @@ class BookClubBot:
 
         if len(current_books) == 0:
             self.bot.send_message(chat_id=msg.chat.id, text="No books are currently being read!", reply_to_message_id=msg.message_id)
-            return
 
-        if len(current_books) == 1:
-            user = User.create_or_get(msg.sender)
-            participation = UserParticipation()
-            participation.book_assignment = current_books[0]
-            participation.user = User.create_or_get(user)
-
-            DBSession.add(participation)
-            DBSession.commit()
-
+        elif len(current_books) == 1:
+            self._join_book(assignment=current_books, user_id=msg.sender.id)
             self.bot.send_message(chat_id=msg.chat.id,
                                   text=f"@{msg.sender.username} joined book {current_books[0].book.friendly_name}!",
                                   reply_to_message_id=msg.message_id)
-            return
+        else:
+            reply = "Which book do you want to join?"
 
-        reply = "Which book do you want to join?"
+            keyboard_rows = []
+            for book_assign in current_books:
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.book.id))])
 
-        keyboard_rows = []
-        for book_assign in current_books:
-            keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.book.id))])
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
-        keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
-
-        query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
-                                      reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
-        self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.join_book__select_book, permission=Permission.SameUser)
+            query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
+                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.join_book__select_book, permission=Permission.SameUser)
 
     def join_book__select_book(self, cbquery, data, **kwargs):
         assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id==int(data)).first()
@@ -223,15 +243,14 @@ class BookClubBot:
         if not assignment:
             self.bot.send_message(chat_id=cbquery.message.chat.id, text="Error joining book, cannot find it in DB.")
 
-        participation = UserParticipation()
-        participation.book_assignment = assignment
-        participation.user = user
-
-        DBSession.add(participation)
-        DBSession.commit()
+        self._join_book(assignment=assignment, user_id=cbquery.sender.id)
 
         self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
                                    text=f"@{cbquery.sender.username} joined book {assignment.book.friendly_name}!")
+    # endregion
+
+    def _bug_workaround(self):
+        pass  # https://youtrack.jetbrains.com/issue/PY-17017
 
 if __name__ == '__main__':
     # Run as script
