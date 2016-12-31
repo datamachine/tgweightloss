@@ -4,7 +4,6 @@ from sqlalchemy import (
     String,
     Text,
     BigInteger,
-    Integer,
     DateTime,
     ForeignKey,
     Boolean,
@@ -16,7 +15,6 @@ from sqlalchemy.orm import (
     sessionmaker,
     relationship,
     )
-
 
 DBSession = scoped_session(sessionmaker(expire_on_commit=False))
 
@@ -46,6 +44,7 @@ class Chat(Base):
 
         return chat
 
+
 class User(Base):
     __tablename__ = 'user'
 
@@ -74,6 +73,7 @@ class User(Base):
         DBSession.commit()
 
         return user
+
 
 class Book(Base):
     __tablename__ = 'book'
@@ -157,6 +157,10 @@ class UserParticipation(Base):
     book_assignment = relationship('BookAssignment', backref='participation')
 
     active = Column(Boolean, default=True)
+
+    def book(self):
+        return self.book_assignment.book
+
 
 class ProgressUpdate(Base):
     __tablename__ = 'progress_update'
