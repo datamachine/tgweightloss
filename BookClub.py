@@ -7,21 +7,19 @@ from functools import wraps, partial
 
 # 3rd Party Libraries
 from twx import botapi
-from twx.botapi.helpers.update_loop import UpdateLoop, Scope, Permission
+from twx.botapi.helpers.update_loop import UpdateLoop, Permission
 
 # My Packages
 from database import *
 from sqlalchemy import engine_from_config
 
-def require_group(f):
+def update_metadata(f):
     @wraps(f)
     def wrapper(*args, **kwds):
-        chat = DBSession.query(Chat).filter(Chat.id == args[1].chat.id).first()
-        if not chat:
-            args[0].bot.send_message(chat_id=args[1].chat.id, text="Can't run this command without registering first. Please run /setup_group",
-                                     reply_to_message_id=args[1].message_id)
-        else:
-            return f(*args, **kwds)
+        if args[1].chat.type in ['supergroup', 'group']:
+            Chat.create_or_get(args[1].chat)
+        User.create_or_get(args[1].sender)
+        return f(*args, **kwds)
     return wrapper
 
 class BookClubBot:
@@ -35,7 +33,6 @@ class BookClubBot:
         self.update_loop = UpdateLoop(self.bot, self)
 
         # Admin Commands
-        self.update_loop.register_command(name='setup_group', permission=Permission.Admin, function=self.setup_group)
         self.update_loop.register_command(name='add_book', permission=Permission.Admin, function=self.add_book)
         self.update_loop.register_command(name='start_book', permission=Permission.Admin, function=self.start_book)
         self.update_loop.register_command(name='register_ebook', permission=Permission.Admin, function=self.register_ebook)
@@ -49,33 +46,11 @@ class BookClubBot:
         self.update_loop.register_command(name='get_progress',  function=self.get_progress)
         self.update_loop.register_command(name='get_due_date',  function=self.get_due_date)
 
-
     def run(self):
         self.update_loop.run()  # Run update loop and register as handler
 
-
     # Admin Commands
-    def setup_group(self, msg, arguments, **kwargs):
-        if msg.chat.type in ["group", "supergroup"]:
-            chat = DBSession.query(Chat).filter(Chat.id == msg.chat.id).first()
-            if not chat:
-                chat = Chat()
-                chat.id = msg.chat.id
-
-                chat.username = msg.chat.username
-                chat.title = msg.chat.title
-
-                DBSession.add(chat)
-                DBSession.commit()
-
-                self.bot.send_message(chat_id=msg.chat.id, text="Registered!", reply_to_message_id=msg.message_id)
-            else:
-                self.bot.send_message(chat_id=msg.chat.id, text="Already registered, use /config_group to change settings.", reply_to_message_id=msg.message_id)
-        elif msg.chat.type == "private":
-            self.bot.send_message(chat_id=msg.chat.id, text="TODO: Register from PM", reply_to_message_id=msg.message_id)  # TODO: Register from PM
-
-
-    @require_group
+    @update_metadata
     def add_book(self, msg, arguments, **kwargs):
         query = self.bot.send_message(chat_id=msg.chat.id, text="Author of book to add?",
                                       reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
@@ -113,23 +88,19 @@ class BookClubBot:
             DBSession.commit()
             self.bot.send_message(chat_id=msg.chat.id, text=f"Added book to the group: {book.friendly_name}", reply_to_message_id=msg.message_id)
 
-    @require_group
+    @update_metadata
     def register_ebook(self, msg, arguments, **kwargs):
         print("Registering Ebook! " + msg.text)
 
-    @require_group
+    @update_metadata
     def register_audiobook(self, msg, arguments, **kwargs):
         print("Registering Audiobook! " + msg.text)
 
-    @require_group
+    @update_metadata
     def set_due_date(self, msg, arguments, **kwargs):
         print("Setting Due date! " + msg.text)
 
-    @require_group
-    def set_progress(self, msg, arguments, **kwargs):
-        print("Setting progress! " + msg.text)
-
-    @require_group
+    @update_metadata
     def start_book(self, msg, arguments, **kwargs):
         open_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).filter(BookAssignment.current == False).all()
         current_book = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
@@ -137,7 +108,6 @@ class BookClubBot:
         if len(open_books) == 0:
             self.bot.send_message(chat_id=msg.chat.id, text="There are no open books to start.",
                                   reply_to_message_id=msg.message_id)
-            
             return
 
         reply = ""
@@ -172,19 +142,47 @@ class BookClubBot:
         self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Starting book {assignment.book.friendly_name}.")
 
     # User Commands
-    @require_group
+    @update_metadata
     def get_progress(self, msg, arguments, **kwargs):
         print("Getting progress! " + msg.text)
 
-    @require_group
+    @update_metadata
+    def set_progress(self, msg, arguments, **kwargs):
+        user = User.create_or_get(msg.sender)
+        joined_books = DBSession.query(BookAssignment).join(UserParticipation).\
+            filter(UserParticipation.book_assignment_id == BookAssignment.id).\
+            filter(BookAssignment.current == True).all()
+
+        if len(joined_books) == 0:
+            self.bot.send_message(chat_id=msg.chat.id, text="You are not currently reading any books!", reply_to_message_id=msg.message_id)
+            return
+
+        reply = "Which book do you want to join?"
+
+        keyboard_rows = []
+        for book_assign in joined_books:
+            keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.book.id))])
+
+        keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+        query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
+                                      reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+        self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.set_progress__select_book, permission=Permission.SameUser)
+
+
+
+    def set_progress__select_book(self, cbquery, data, **kwargs):
+        pass
+
+    @update_metadata
     def get_due_date(self, msg, arguments, **kwargs):
         print("Getting due date! " + msg.text)
 
-    @require_group
+    @update_metadata
     def get_book(self, msg, arguments, **kwargs):
         print("Getting a book! " + msg.text)
 
-    @require_group
+    @update_metadata
     def join_book(self, msg, arguments, **kwargs):
         current_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
 

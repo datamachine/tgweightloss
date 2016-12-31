@@ -31,6 +31,19 @@ class Chat(Base):
     title = Column(String)
     username = Column(String)
 
+    @staticmethod
+    def create_or_get(src_chat):
+        chat = DBSession.query(Chat).filter(Chat.id == src_chat.id).first()
+        if not chat:
+            chat = Chat()
+            chat.id = src_chat.id
+        chat.username = src_chat.username
+        chat.title = src_chat.title
+
+        DBSession.add(chat)
+        DBSession.commit()
+
+        return chat
 
 class User(Base):
     __tablename__ = 'user'
