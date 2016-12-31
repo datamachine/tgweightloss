@@ -43,6 +43,7 @@ class BookClubBot:
         # User Commands
         self.update_loop.register_command(name='get_book', function=self.get_book)
         self.update_loop.register_command(name='join_book', function=self.join_book)
+        self.update_loop.register_command(name='quit_book', function=self.quit_book)
         self.update_loop.register_command(name='set_progress', function=self.set_progress)
         self.update_loop.register_command(name='get_progress',  function=self.get_progress)
         self.update_loop.register_command(name='get_due_date',  function=self.get_due_date)
@@ -285,12 +286,51 @@ class BookClubBot:
         assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id==int(data)).first()
 
         if not assignment:
-            self.bot.send_message(chat_id=cbquery.message.chat.id, text="Error joining book, cannot find it in DB.")
+            self.bot.answer_callback_query(callback_query_id=cbquery.id, text="Error joining book, cannot find it in DB.")
 
         self._join_book(assignment=assignment, user_id=cbquery.sender.id)
 
         self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
                                    text=f"@{cbquery.sender.username} joined book {assignment.book.friendly_name}!")
+    # endregion
+
+    # region quit_book command
+    @update_metadata
+    def quit_book(self, msg, arguments):
+        user = User.create_or_get(msg.sender)
+        books = user.active_participation(msg.chat.id)
+
+        if len(books) == 0:
+            self.bot.send_message(chat_id=msg.chat.id, text="You are not reading any books.", reply_to_message_id=msg.message_id)
+        else:
+            reply = "Which book do you want to quit?"
+
+            keyboard_rows = []
+            for participation in books:
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=participation.book_assignment.book.friendly_name, callback_data=str(participation.id))])
+            keyboard_rows.append([botapi.InlineKeyboardButton(text="Cancel", callback_data="CANCEL")])
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+            query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
+                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.quit_book__select_book, permission=Permission.SameUser)
+
+    def quit_book__select_book(self, cbquery, data):
+        if data == "CANCEL":
+            self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
+                                       text=f"Quit canceled.")
+        else:
+            participation = DBSession.query(UserParticipation).filter(UserParticipation.id==int(data)).first()
+
+            if not participation:
+                self.bot.answer_callback_query(callback_query_id=cbquery.id, text="Error quiting book, cannot find it in DB.")
+
+            participation.active = False
+            DBSession.add(participation)
+            DBSession.commit()
+
+            self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
+                                       text=f"@{cbquery.sender.username} has quit book {participation.book_assignment.book.friendly_name}!")
     # endregion
 
     def _bug_workaround(self):

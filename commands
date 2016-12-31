@@ -1,11 +1,11 @@
-setup_group - Setup group on bot.
 add_book - Add new book to group list
 start_book - Set active book in group list
 register_ebook - Set the ebook for the active book
 register_audiobook - Set the audiobook for the active book
 set_due_date - Set the due date for the next reading deadline
 get_book - Get the info on the current book
-join_book - Join the current book
+join_book - Join the a current book
+quit_book - Quit a book
 set_progress - Set your progress in the current book (usually by chapter)
 get_progress - Get the participating reader's last registered progress.
 get_due_date - Get the current due date information

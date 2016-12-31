@@ -53,6 +53,12 @@ class User(Base):
     last_name = Column(String)
     username = Column(String)
 
+    def active_participation(self, chat_id=None):
+        if chat_id is not None:
+            return [p for p in self.participation if p.active and p.book_assignment.chat_id == chat_id]
+        else:
+            return [p for p in self.participation if p.active]
+
     @staticmethod
     def create_or_get(sender):
         user = DBSession.query(User).filter(User.id == sender.id).first()
@@ -146,6 +152,7 @@ class UserParticipation(Base):
     book_assignment_id = Column(Integer, ForeignKey('book_assignment.id'))
     book_assignment = relationship('BookAssignment', backref='participation')
 
+    active = Column(Boolean, default=True)
 
 class ProgressUpdate(Base):
     __tablename__ = 'progress_update'
