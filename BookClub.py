@@ -103,7 +103,12 @@ class BookClubBot:
     # region register_audiobook command
     @update_metadata
     def register_audiobook(self, msg, arguments):
-        print("Registering Audiobook! " + msg.text)
+        query = self.bot.send_message(chat_id=msg.chat.id, text="Gimmie that audiobook",
+                                      reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
+        self.update_loop.register_reply_watch(message=query, function=self.register_audiobook__file)
+
+    def register_audiobook__file(self, msg, arguments):
+        self.bot.send_message(chat_id=msg.chat.id, text="Get It Here!", reply_to_message_id=msg.message_id) # TODO store this in the DB...
     # endregion
 
     # region set_due_date command
