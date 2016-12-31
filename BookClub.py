@@ -54,18 +54,18 @@ class BookClubBot:
     # Admin Commands
     # region add_book command
     @update_metadata
-    def add_book(self, msg, arguments, **kwargs):
+    def add_book(self, msg, arguments):
         query = self.bot.send_message(chat_id=msg.chat.id, text="Author of book to add?",
                                       reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
         self.update_loop.register_reply_watch(message=query, function=self.add_book__set_author)
 
-    def add_book__set_author(self, msg, arguments, **kwargs):
+    def add_book__set_author(self, msg):
         # TODO: Validate text?
         query = self.bot.send_message(chat_id=msg.chat.id, text="Title of book to add?",
                                       reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
         self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_title, msg.text))
 
-    def add_book__set_title(self, author_name, msg, arguments, **kwargs):
+    def add_book__set_title(self, author_name, msg):
         # TODO: Look up the book, maybe another group has entered it?
         author = DBSession.query(Author).filter(Author.name == author_name).first()  # TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
                                                                                      # ("Arthur C Clarke" vs "Arthur C. Clarke" vs "Sir Arthur C Clarke")
@@ -94,25 +94,25 @@ class BookClubBot:
 
     # region register_ebook command
     @update_metadata
-    def register_ebook(self, msg, arguments, **kwargs):
+    def register_ebook(self, msg, arguments):
         print("Registering Ebook! " + msg.text)
     # endregion
 
     # region register_audiobook command
     @update_metadata
-    def register_audiobook(self, msg, arguments, **kwargs):
+    def register_audiobook(self, msg, arguments):
         print("Registering Audiobook! " + msg.text)
     # endregion
 
     # region set_due_date command
     @update_metadata
-    def set_due_date(self, msg, arguments, **kwargs):
+    def set_due_date(self, msg, arguments):
         print("Setting Due date! " + msg.text)
     # endregion
 
     # region start_book command
     @update_metadata
-    def start_book(self, msg, arguments, **kwargs):
+    def start_book(self, msg, arguments):
         open_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).filter(BookAssignment.current == False).all()
         current_book = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
 
@@ -139,7 +139,7 @@ class BookClubBot:
         self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.start_book__select_book, permission=Permission.SameUser)
         pass
 
-    def start_book__select_book(self, cbquery, data, **kwargs):
+    def start_book__select_book(self, cbquery, data):
         assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id==int(data)).first()
 
         if not assignment:
@@ -156,7 +156,7 @@ class BookClubBot:
     # User Commands
     # region get_progress command
     @update_metadata
-    def get_progress(self, msg, arguments, **kwargs):
+    def get_progress(self, msg, arguments):
         print("Getting progress! " + msg.text)
     # endregion
 
@@ -170,7 +170,7 @@ class BookClubBot:
         DBSession.commit()
 
     @update_metadata
-    def set_progress(self, msg, arguments, **kwargs):
+    def set_progress(self, msg, arguments):
         try:
             progress = int(arguments)
         except (ValueError, TypeError):
@@ -206,7 +206,7 @@ class BookClubBot:
                                           reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
             self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.set_progress__select_book, msg.message_id, progress), permission=Permission.SameUser)
 
-    def set_progress__select_book(self, original_msg_id, progress, cbquery, data, **kwargs):
+    def set_progress__select_book(self, original_msg_id, progress, cbquery, data):
         if progress is not None:
             self._set_progress(int(data), progress)
             self.bot.send_message(chat_id=cbquery.message.chat.id, text="Progress set!", reply_to_message_id=cbquery.message.message_id)
@@ -215,7 +215,7 @@ class BookClubBot:
                                           reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=original_msg_id).join().result
             self.update_loop.register_reply_watch(message=query, function=partial(self.set_progress__ask_progress, data))
 
-    def set_progress__ask_progress(self, participation_id, msg, arguments, **kwargs):
+    def set_progress__ask_progress(self, participation_id, msg, arguments):
         try:
             progress = int(msg.text)
         except (ValueError, TypeError):
@@ -232,13 +232,13 @@ class BookClubBot:
 
     # region get_due_date command
     @update_metadata
-    def get_due_date(self, msg, arguments, **kwargs):
+    def get_due_date(self, msg, arguments):
         print("Getting due date! " + msg.text)
     # endregion
 
     # region get_book command
     @update_metadata
-    def get_book(self, msg, arguments, **kwargs):
+    def get_book(self, msg, arguments):
         print("Getting a book! " + msg.text)
     # endregion
 
@@ -252,7 +252,7 @@ class BookClubBot:
         DBSession.commit()
 
     @update_metadata
-    def join_book(self, msg, arguments, **kwargs):
+    def join_book(self, msg, arguments):
         open_books = DBSession.query(BookAssignment)\
             .filter(BookAssignment.chat_id == msg.chat.id)\
             .filter(BookAssignment.current == True).all()
@@ -281,7 +281,7 @@ class BookClubBot:
                                           reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
             self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.join_book__select_book, permission=Permission.SameUser)
 
-    def join_book__select_book(self, cbquery, data, **kwargs):
+    def join_book__select_book(self, cbquery, data):
         assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id==int(data)).first()
 
         if not assignment:
