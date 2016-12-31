@@ -206,14 +206,17 @@ class BookClubBot:
             self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.set_progress__select_book, msg.message_id, progress), permission=Permission.SameUser)
 
     def set_progress__select_book(self, original_msg_id, progress, cbquery, data):
+        book = DBSession.query(UserParticipation).filter(UserParticipation.id == data).first().book_assignment.book
+
         if progress is not None:
             self._set_progress(int(data), progress)
-            book = DBSession.query(UserParticipation).filter(UserParticipation.id == data).first().book_assignment.book
-            self.bot.send_message(chat_id=cbquery.message.chat.id, text=f"Progress set for {book.friendly_name}!", reply_to_message_id=cbquery.message.message_id)
+            self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Progress set for {book.friendly_name}!")
         else:
             query = self.bot.send_message(chat_id=cbquery.message.chat.id, text="How far have you read?",
                                           reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=original_msg_id).join().result
+            self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Selected {book.friendly_name}.")
             self.update_loop.register_reply_watch(message=query, function=partial(self.set_progress__ask_progress, data))
+
 
     def set_progress__ask_progress(self, participation_id, msg, arguments):
         try:
