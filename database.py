@@ -102,7 +102,7 @@ class BookReview(Base):
     __tablename__ = 'book_review'
 
     id = Column(Integer, primary_key=True)
-    review_date = Column(DateTime)
+    review_date = Column(DateTime, default=func.now())
     rating = Column(Integer)
     review_text = Column(Text)
 
@@ -117,7 +117,7 @@ class BookAssignment(Base):
 
     id = Column(Integer, primary_key=True)
     schedule_type = Column(String, default="chapters")
-    start_date = Column(DateTime)
+    start_date = Column(DateTime, default=func.now())
     done = Column(Boolean, default=False)
     current = Column(Boolean, default=False)
 
