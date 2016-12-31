@@ -177,10 +177,8 @@ class BookClubBot:
         except (ValueError, TypeError):
             progress = None
 
-        joined_books = DBSession.query(UserParticipation).join(BookAssignment).\
-            filter(UserParticipation.book_assignment_id == BookAssignment.id). \
-            filter(UserParticipation.user_id == msg.sender.id). \
-            filter(BookAssignment.current == True).all()
+        user = User.create_or_get(msg.sender)
+        joined_books = user.active_participation(chat_id=msg.chat.id)
 
         if len(joined_books) == 0:
             self.bot.send_message(chat_id=msg.chat.id, text="You are not currently reading any books!", reply_to_message_id=msg.message_id)
@@ -188,7 +186,7 @@ class BookClubBot:
         elif len(joined_books) == 1:
             if progress is not None:
                 self._set_progress(joined_books[0].id, progress)
-                self.bot.send_message(chat_id=msg.chat.id, text="Progress set!", reply_to_message_id=msg.message_id)
+                self.bot.send_message(chat_id=msg.chat.id, text=f"Progress set for {joined_books[0].book_assignment.book.friendly_name}!", reply_to_message_id=msg.message_id)
             else:
                 query = self.bot.send_message(chat_id=msg.chat.id, text="How far have you read?",
                                               reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
@@ -210,7 +208,8 @@ class BookClubBot:
     def set_progress__select_book(self, original_msg_id, progress, cbquery, data):
         if progress is not None:
             self._set_progress(int(data), progress)
-            self.bot.send_message(chat_id=cbquery.message.chat.id, text="Progress set!", reply_to_message_id=cbquery.message.message_id)
+            book = DBSession.query(UserParticipation).filter(UserParticipation.id == data).first().book_assignment.book
+            self.bot.send_message(chat_id=cbquery.message.chat.id, text=f"Progress set for {book.friendly_name}!", reply_to_message_id=cbquery.message.message_id)
         else:
             query = self.bot.send_message(chat_id=cbquery.message.chat.id, text="How far have you read?",
                                           reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=original_msg_id).join().result
@@ -224,7 +223,8 @@ class BookClubBot:
 
         if progress is not None:
             self._set_progress(participation_id, progress)
-            self.bot.send_message(chat_id=msg.chat.id, text="Progress set!", reply_to_message_id=msg.message_id)
+            book = DBSession.query(UserParticipation).filter(UserParticipation.id == participation_id).first().book_assignment.book
+            self.bot.send_message(chat_id=msg.chat.id, text=f"Progress set for {book.friendly_name}!", reply_to_message_id=msg.message_id)
         else:
             # TODO: They are still sending more garbage.. should we try to strip out any text and just look for a number?
             self.bot.send_message(chat_id=msg.chat.id, text="Sorry, there was an error processing your answer", reply_to_message_id=msg.message_id)
@@ -245,6 +245,7 @@ class BookClubBot:
 
     # region join_book command
     def _join_book(self, user_id, assignment):
+        # TODO look to see if we quit the book before and just rejoin
         participation = UserParticipation()
         participation.book_assignment = assignment
         participation.user_id = user_id
@@ -258,7 +259,7 @@ class BookClubBot:
             .filter(BookAssignment.chat_id == msg.chat.id)\
             .filter(BookAssignment.current == True).all()
         user = User.create_or_get(msg.sender)
-        current_books = [participation.book_assignment_id for participation in user.participation]
+        current_books = [participation.book_assignment_id for participation in user.active_participation(msg.chat.id)]
         open_books = [book for book in open_books if book.id not in current_books]
 
         if len(open_books) == 0:
@@ -298,7 +299,10 @@ class BookClubBot:
     @update_metadata
     def quit_book(self, msg, arguments):
         user = User.create_or_get(msg.sender)
-        books = user.active_participation(msg.chat.id)
+        if msg.chat.type == "private":
+            books = user.active_participation()
+        else:
+            books = user.active_participation(msg.chat.id)
 
         if len(books) == 0:
             self.bot.send_message(chat_id=msg.chat.id, text="You are not reading any books.", reply_to_message_id=msg.message_id)
