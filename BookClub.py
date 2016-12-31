@@ -161,33 +161,73 @@ class BookClubBot:
     # endregion
 
     # region set_progress command
+    def _set_progress(self, participation_id, progress):
+        new_progress = ProgressUpdate()
+        new_progress.participation_id = participation_id
+        new_progress.progress = progress
+
+        DBSession.add(new_progress)
+        DBSession.commit()
+
     @update_metadata
     def set_progress(self, msg, arguments, **kwargs):
-        user = User.create_or_get(msg.sender)
-        joined_books = DBSession.query(BookAssignment).join(UserParticipation).\
-            filter(UserParticipation.book_assignment_id == BookAssignment.id).\
+        try:
+            progress = int(arguments)
+        except (ValueError, TypeError):
+            progress = None
+
+        joined_books = DBSession.query(UserParticipation).join(BookAssignment).\
+            filter(UserParticipation.book_assignment_id == BookAssignment.id). \
+            filter(UserParticipation.user_id == msg.sender.id). \
             filter(BookAssignment.current == True).all()
 
         if len(joined_books) == 0:
             self.bot.send_message(chat_id=msg.chat.id, text="You are not currently reading any books!", reply_to_message_id=msg.message_id)
-            return
 
-        reply = "Which book do you want to join?"
+        elif len(joined_books) == 1:
+            if progress is not None:
+                self._set_progress(joined_books[0].id, progress)
+                self.bot.send_message(chat_id=msg.chat.id, text="Progress set!", reply_to_message_id=msg.message_id)
+            else:
+                query = self.bot.send_message(chat_id=msg.chat.id, text="How far have you read?",
+                                              reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
+                self.update_loop.register_reply_watch(message=query, function=partial(self.set_progress__ask_progress, joined_books[0].id))
 
-        keyboard_rows = []
-        for book_assign in joined_books:
-            keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.book.id))])
+        else:
+            reply = "Which book do you want to set progress on?"
 
-        keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+            keyboard_rows = []
+            for participation in joined_books:
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=participation.book_assignment.book.friendly_name, callback_data=str(participation.id))])
 
-        query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
-                                      reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
-        self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.set_progress__select_book, permission=Permission.SameUser)
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
+            query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
+                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.set_progress__select_book, msg.message_id, progress), permission=Permission.SameUser)
 
+    def set_progress__select_book(self, original_msg_id, progress, cbquery, data, **kwargs):
+        if progress is not None:
+            self._set_progress(int(data), progress)
+            self.bot.send_message(chat_id=cbquery.message.chat.id, text="Progress set!", reply_to_message_id=cbquery.message.message_id)
+        else:
+            query = self.bot.send_message(chat_id=cbquery.message.chat.id, text="How far have you read?",
+                                          reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=original_msg_id).join().result
+            self.update_loop.register_reply_watch(message=query, function=partial(self.set_progress__ask_progress, data))
 
-    def set_progress__select_book(self, cbquery, data, **kwargs):
-        pass
+    def set_progress__ask_progress(self, participation_id, msg, arguments, **kwargs):
+        try:
+            progress = int(msg.text)
+        except (ValueError, TypeError):
+            progress = None
+
+        if progress is not None:
+            self._set_progress(participation_id, progress)
+            self.bot.send_message(chat_id=msg.chat.id, text="Progress set!", reply_to_message_id=msg.message_id)
+        else:
+            # TODO: They are still sending more garbage.. should we try to strip out any text and just look for a number?
+            self.bot.send_message(chat_id=msg.chat.id, text="Sorry, there was an error processing your answer", reply_to_message_id=msg.message_id)
+
     # endregion
 
     # region get_due_date command
@@ -213,21 +253,26 @@ class BookClubBot:
 
     @update_metadata
     def join_book(self, msg, arguments, **kwargs):
-        current_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
+        open_books = DBSession.query(BookAssignment)\
+            .filter(BookAssignment.chat_id == msg.chat.id)\
+            .filter(BookAssignment.current == True).all()
+        user = User.create_or_get(msg.sender)
+        current_books = [participation.book_assignment_id for participation in user.participation]
+        open_books = [book for book in open_books if book.id not in current_books]
 
-        if len(current_books) == 0:
-            self.bot.send_message(chat_id=msg.chat.id, text="No books are currently being read!", reply_to_message_id=msg.message_id)
+        if len(open_books) == 0:
+            self.bot.send_message(chat_id=msg.chat.id, text="No books are currently being read that you're not in!", reply_to_message_id=msg.message_id)
 
-        elif len(current_books) == 1:
-            self._join_book(assignment=current_books, user_id=msg.sender.id)
+        elif len(open_books) == 1:
+            self._join_book(assignment=open_books[0], user_id=msg.sender.id)
             self.bot.send_message(chat_id=msg.chat.id,
-                                  text=f"@{msg.sender.username} joined book {current_books[0].book.friendly_name}!",
+                                  text=f"@{msg.sender.username} joined book {open_books[0].book.friendly_name}!",
                                   reply_to_message_id=msg.message_id)
         else:
             reply = "Which book do you want to join?"
 
             keyboard_rows = []
-            for book_assign in current_books:
+            for book_assign in open_books:
                 keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.book.id))])
 
             keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
@@ -238,7 +283,6 @@ class BookClubBot:
 
     def join_book__select_book(self, cbquery, data, **kwargs):
         assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id==int(data)).first()
-        user = User.create_or_get(cbquery.sender)
 
         if not assignment:
             self.bot.send_message(chat_id=cbquery.message.chat.id, text="Error joining book, cannot find it in DB.")

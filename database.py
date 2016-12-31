@@ -110,7 +110,7 @@ class BookAssignment(Base):
     __tablename__ = 'book_assignment'
 
     id = Column(Integer, primary_key=True)
-    schedule_type = Column(String)
+    schedule_type = Column(String, default="chapters")
     start_date = Column(DateTime)
     done = Column(Boolean, default=False)
     current = Column(Boolean, default=False)
@@ -152,7 +152,7 @@ class ProgressUpdate(Base):
 
     id = Column(Integer, primary_key=True)
 
-    update_date = Column(DateTime)
+    update_date = Column(DateTime, default=func.now())
     progress = Column(Integer)  # TODO: Progress in pages? Maybe track as percent? Edition is available.
 
     participation_id = Column(Integer, ForeignKey('user_participation.id'))
