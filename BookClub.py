@@ -23,6 +23,7 @@ def update_metadata(f):
         return f(*args, **kwds)
     return wrapper
 
+
 class BookClubBot:
     def __init__(self, config):
         self.config = config
@@ -49,9 +50,6 @@ class BookClubBot:
         self.update_loop.register_command(name='get_progress',  function=self.get_progress)
         self.update_loop.register_command(name='get_due_date',  function=self.get_due_date)
         # endregion
-
-    def run(self):
-        self.update_loop.run()  # Run update loop and register as handler
 
     # Admin Commands
     # region add_book command
@@ -97,7 +95,48 @@ class BookClubBot:
     # region register_ebook command
     @update_metadata
     def register_ebook(self, msg, arguments):
-        print("Registering Ebook! " + msg.text)
+        open_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).all()
+        if len(open_books) == 0:
+            self.bot.send_message(chat_id=msg.chat.id, text="There are no open books.",
+                                  reply_to_message_id=msg.message_id)
+        elif len(open_books) == 1:
+            query = self.bot.send_message(chat_id=msg.chat.id, text="Gimmie that ebook.",
+                                          reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_reply_watch(message=query, function=partial(self.register_ebook__file, open_books[0].id))
+        else:
+            # TODO: Support a "More" button.
+            keyboard_rows = []
+            for book_assign in open_books:
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.book.id))])
+
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+            query = self.bot.send_message(chat_id=msg.chat.id, text="Which book do you want to register an ebook for?",
+                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.register_ebook__select_book, msg.message_id), permission=Permission.SameUser)
+
+    def register_ebook__select_book(self, original_msg_id, cbquery, data):
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id==int(data)).first()
+
+        query = self.bot.send_message(chat_id=cbquery.message.chat.id, text="Gimmie that ebook.",
+                                      reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=original_msg_id).join().result
+        self.update_loop.register_reply_watch(message=query, function=partial(self.register_ebook__file, data))
+
+        assignment.current = True
+
+        DBSession.add(assignment)
+        DBSession.commit()
+
+        self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Registering ebook for  {assignment.book.friendly_name}.")
+
+    def register_ebook__file(self, assignment_id, msg):
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == assignment_id).first()
+        assignment.ebook_message_id = msg.message_id
+
+        DBSession.add(assignment)
+        DBSession.commit()
+
+        self.bot.send_message(chat_id=msg.chat.id, text="Saved!", reply_to_message_id=msg.message_id)
     # endregion
 
     # region register_audiobook command
@@ -144,7 +183,7 @@ class BookClubBot:
         DBSession.add(assignment)
         DBSession.commit()
 
-        self.bot.send_message(chat_id=msg.chat.id, text="Saved!", reply_to_message_id=msg.message_id)  # TODO store this in the DB...
+        self.bot.send_message(chat_id=msg.chat.id, text="Saved!", reply_to_message_id=msg.message_id)
     # endregion
 
     # region set_due_date command
@@ -442,8 +481,8 @@ class BookClubBot:
                                        text=f"@{cbquery.sender.username} has quit book {participation.book.friendly_name}!")
     # endregion
 
-    def _bug_workaround(self):
-        pass  # https://youtrack.jetbrains.com/issue/PY-17017
+    def run(self):
+        self.update_loop.run()  # Run update loop and register as handler
 
 if __name__ == '__main__':
     # Run as script
