@@ -45,4 +45,4 @@ data.db
 
 # Instance config file
 config.ini
-alembic.ini
+TGBookClubBot/alembic.ini
