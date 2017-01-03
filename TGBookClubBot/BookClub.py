@@ -1,18 +1,16 @@
 # Standard Library
+import configparser
 import logging
 import os.path
-import re
-import configparser
+import sqlalchemy.exc
 from functools import wraps, partial
+from sqlalchemy import engine_from_config
 
-# 3rd Party Libraries
 from twx import botapi
 from twx.botapi.helpers.update_loop import UpdateLoop, Permission
 
-# My Packages
-from database import *
-from sqlalchemy import engine_from_config
-import sqlalchemy.exc
+from TGBookClubBot.models import *
+
 
 def update_metadata(f):
     @wraps(f)
