@@ -103,12 +103,48 @@ class BookClubBot:
     # region register_audiobook command
     @update_metadata
     def register_audiobook(self, msg, arguments):
-        query = self.bot.send_message(chat_id=msg.chat.id, text="Gimmie that audiobook",
-                                      reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
-        self.update_loop.register_reply_watch(message=query, function=self.register_audiobook__file)
+        open_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).all()
+        if len(open_books) == 0:
+            self.bot.send_message(chat_id=msg.chat.id, text="There are no open books.",
+                                  reply_to_message_id=msg.message_id)
+        elif len(open_books) == 1:
+            query = self.bot.send_message(chat_id=msg.chat.id, text="Gimmie that audiobook.",
+                                          reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_reply_watch(message=query, function=partial(self.register_audiobook__file, open_books[0].id))
+        else:
+            # TODO: Support a "More" button.
+            keyboard_rows = []
+            for book_assign in open_books:
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.book.id))])
 
-    def register_audiobook__file(self, msg, arguments):
-        self.bot.send_message(chat_id=msg.chat.id, text="Get It Here!", reply_to_message_id=msg.message_id) # TODO store this in the DB...
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+            query = self.bot.send_message(chat_id=msg.chat.id, text="Which book do you want to register an audiobook for?",
+                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.register_audiobook__select_book, msg.message_id), permission=Permission.SameUser)
+
+    def register_audiobook__select_book(self, original_msg_id, cbquery, data):
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id==int(data)).first()
+
+        query = self.bot.send_message(chat_id=cbquery.message.chat.id, text="Gimmie that audiobook.",
+                                      reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=original_msg_id).join().result
+        self.update_loop.register_reply_watch(message=query, function=partial(self.register_audiobook__file, data))
+
+        assignment.current = True
+
+        DBSession.add(assignment)
+        DBSession.commit()
+
+        self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Registering audiobook for  {assignment.book.friendly_name}.")
+
+    def register_audiobook__file(self, assignment_id, msg):
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == assignment_id).first()
+        assignment.audiobook_message_id = msg.message_id
+
+        DBSession.add(assignment)
+        DBSession.commit()
+
+        self.bot.send_message(chat_id=msg.chat.id, text="Saved!", reply_to_message_id=msg.message_id)  # TODO store this in the DB...
     # endregion
 
     # region set_due_date command
@@ -126,28 +162,26 @@ class BookClubBot:
         if len(open_books) == 0:
             self.bot.send_message(chat_id=msg.chat.id, text="There are no open books to start.",
                                   reply_to_message_id=msg.message_id)
-            return
+        else:
+            reply = ""
 
-        reply = ""
+            if len(current_book) > 0:
+                reply += f"There are currently {len(current_book)} active books. \n"
+            reply += "Which book do you want to set as active?"
 
-        if len(current_book) > 0:
-            reply += f"There are currently {len(current_book)} active books. \n"
-        reply += "Which book do you want to set as active?"
+            # TODO: Support a "More" button.
+            keyboard_rows = []
+            for book_assign in open_books:
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.id))])
 
-        # TODO: Support a "More" button.
-        keyboard_rows = []
-        for book_assign in open_books:
-            keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.book.id))])
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
-        keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
-
-        query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
-                                      reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
-        self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.start_book__select_book, permission=Permission.SameUser)
-        pass
+            query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
+                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.start_book__select_book, permission=Permission.SameUser)
 
     def start_book__select_book(self, cbquery, data):
-        assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id==int(data)).first()
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id==int(data)).first()
 
         if not assignment:
             self.bot.send_message(chat_id=cbquery.message.chat.id, text="Error starting book, cannot find it in DB.")
@@ -280,8 +314,7 @@ class BookClubBot:
             self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Selected {book.friendly_name}.")
             self.update_loop.register_reply_watch(message=query, function=partial(self.set_progress__ask_progress, data))
 
-
-    def set_progress__ask_progress(self, participation_id, msg, arguments):
+    def set_progress__ask_progress(self, participation_id, msg):
         try:
             progress = int(msg.text)
         except (ValueError, TypeError):

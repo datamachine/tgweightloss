@@ -3,6 +3,7 @@ from sqlalchemy import (
     Column,
     String,
     Text,
+    Integer,
     BigInteger,
     DateTime,
     ForeignKey,
@@ -14,9 +15,10 @@ from sqlalchemy.orm import (
     scoped_session,
     sessionmaker,
     relationship,
+    Session,
     )
 
-DBSession = scoped_session(sessionmaker(expire_on_commit=False))
+DBSession: Session = scoped_session(sessionmaker(expire_on_commit=False))
 
 # Models
 Base = declarative_base()
@@ -136,8 +138,8 @@ class BookSchedule(Base):
 
     id = Column(BigInteger, primary_key=True)
     due_date = Column(DateTime)
-    start = Column(BigInteger)
-    end = Column(BigInteger)
+    start = Column(Integer)
+    end = Column(Integer)
 
     book_assignment_id = Column(BigInteger, ForeignKey('book_assignment.id'))
     book_assignment = relationship('BookAssignment', backref='schedules')
@@ -158,6 +160,7 @@ class UserParticipation(Base):
 
     active = Column(Boolean, default=True)
 
+    @property
     def book(self):
         return self.book_assignment.book
 
@@ -168,7 +171,7 @@ class ProgressUpdate(Base):
     id = Column(BigInteger, primary_key=True)
 
     update_date = Column(DateTime, default=func.now())
-    progress = Column(BigInteger)  # TODO: Progress in pages? Maybe track as percent? Edition is available.
+    progress = Column(Integer)  # TODO: Progress in pages? Maybe track as percent? Edition is available.
 
     participation_id = Column(BigInteger, ForeignKey('user_participation.id'))
     participation = relationship('UserParticipation', backref='updates')
