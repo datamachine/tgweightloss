@@ -1,4 +1,4 @@
-"""use_timezones
+"""Use Timezones
 
 Revision ID: 5a72882270c2
 Revises: 9cddf0ff1c31
