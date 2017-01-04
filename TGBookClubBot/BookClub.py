@@ -260,7 +260,7 @@ class BookClubBot:
         update_text = f"Progress for {assignment.book.friendly_name}:\n"
 
         for status in progress.values():
-            update_text += f"{status.participation.user.first_name} {status.participation.user.last_name}: {status.progress} @ {status.update_date).strftime('%Y-%m-%d %I:%M %p %Z')}\n"
+            update_text += f"{status.participation.user.first_name} {status.participation.user.last_name}: {status.progress} @ {status.update_date.strftime('%Y-%m-%d %I:%M %p %Z')}\n"
 
         if edit_message_id is not None:
             self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=update_text)
