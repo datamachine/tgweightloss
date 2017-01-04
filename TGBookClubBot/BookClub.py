@@ -5,12 +5,12 @@ import os.path
 import sqlalchemy.exc
 from functools import wraps, partial
 from sqlalchemy import engine_from_config
+import pytz
 
 from twx import botapi
 from twx.botapi.helpers.update_loop import UpdateLoop, Permission
 
 from TGBookClubBot.models import *
-
 
 def update_metadata(f):
     @wraps(f)
@@ -185,9 +185,19 @@ class BookClubBot:
     # endregion
 
     # region set_due_date command
+    def _set_due_date(self, book_assignment_id, date, end_progress):
+        new_schedule = BookSchedule()
+        new_schedule.start = 0
+        new_schedule.end = end_progress
+        new_schedule.due_date = date
+        new_schedule.book_assignment_id = book_assignment_id
+
+        DBSession.add(new_schedule)
+        DBSession.commit()
+
     @update_metadata
     def set_due_date(self, msg, arguments):
-        print("Setting Due date! " + msg.text)
+        print(arguments)
     # endregion
 
     # region start_book command
@@ -250,7 +260,7 @@ class BookClubBot:
         update_text = f"Progress for {assignment.book.friendly_name}:\n"
 
         for status in progress.values():
-            update_text += f"{status.participation.user.first_name} {status.participation.user.last_name}: {status.progress}\n"
+            update_text += f"{status.participation.user.first_name} {status.participation.user.last_name}: {status.progress} @ {status.update_date).strftime('%Y-%m-%d %I:%M %p %Z')}\n"
 
         if edit_message_id is not None:
             self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=update_text)
@@ -362,7 +372,7 @@ class BookClubBot:
             try:
                 self._set_progress(participation_id, progress)
                 self.bot.send_message(chat_id=msg.chat.id, text=f"Progress set for {book.friendly_name}!", reply_to_message_id=msg.message_id)
-            except sqlalchemy.exc.DataError: # TODO this code is repeated 3 times, centralize, maybe pass chat info into _set_progress?
+            except sqlalchemy.exc.DataError:  # TODO this code is repeated 3 times, centralize, maybe pass chat info into _set_progress?
                 DBSession.rollback()
                 self.bot.send_message(chat_id=msg.chat.id,
                                       text=f"Error setting progress set for {book.friendly_name}, number may be too large or invalid.",
@@ -380,9 +390,69 @@ class BookClubBot:
     # endregion
 
     # region get_book command
+    def _send_book_info(self, info_type, book_assignment_id, edit_message_id=None):
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == book_assignment_id).one()
+
+        if info_type == "Audiobook":
+            self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=f"Forwarding audiobook for {assignment.book.friendly_name}.")
+            self.bot.forward_message(chat_id=assignment.chat_id, from_chat_id=assignment.chat_id, message_id=assignment.audiobook_message_id)
+        elif info_type == "eBook":
+            self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=f"eBook {assignment.book.friendly_name}.")
+            self.bot.forward_message(chat_id=assignment.chat_id, from_chat_id=assignment.chat_id, message_id=assignment.ebook_message_id)
+        elif info_type == "Synopsis":
+            self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=f"Synopsis and links for {assignment.book.friendly_name} here.")
+        else:
+            raise Exception("Unknown Book Info String")  # TODO Handle errors better
+
     @update_metadata
     def get_book(self, msg, arguments):
-        print("Getting a book! " + msg.text)
+        open_books = DBSession.query(BookAssignment) \
+            .filter(BookAssignment.chat_id == msg.chat.id) \
+            .filter(BookAssignment.current == True).all()
+
+        if len(open_books) == 1:
+            self.get_book__info_type(msg, None, open_books[0].id)
+        else:
+            reply = "Which book do you want info for?"
+
+            keyboard_rows = []
+            for book_assign in open_books:
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.id))])
+
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+            query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
+                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.get_book__info_type, msg), permission=Permission.SameUser)
+
+    def get_book__info_type(self, msg, cbquery, data):
+        book = DBSession.query(BookAssignment).filter(BookAssignment.id == data).first()
+        reply = f"What info would you like for {book.book.friendly_name}?"
+
+        buttons = ["Synopsis"]
+        if book.ebook_message_id:
+            buttons.append("eBook")
+        if book.audiobook_message_id:
+            buttons.append("Audiobook")
+
+        keyboard_rows = []
+        for button in buttons:
+            keyboard_rows.append([botapi.InlineKeyboardButton(text=button, callback_data=str(button))])
+
+        keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+        if cbquery is not None:
+            query = self.bot.edit_message_text(chat_id=msg.chat.id, text=reply,
+                                               reply_markup=keyboard, message_id=cbquery.message.message_id).join().result
+        else:
+            query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
+                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+
+        self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.get_book__select_info_type, data), permission=Permission.SameUser)
+
+    def get_book__select_info_type(self, book_assignment_id, cbquery, data):
+        self._send_book_info(data, book_assignment_id, edit_message_id=cbquery.message.message_id)
+
     # endregion
 
     # region join_book command
