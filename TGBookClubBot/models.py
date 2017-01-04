@@ -103,7 +103,7 @@ class BookReview(Base):
     __tablename__ = 'book_review'
 
     id = Column(BigInteger, primary_key=True)
-    review_date = Column(DateTime, default=func.now())
+    review_date = Column(DateTime(timezone=True), default=func.now())
     rating = Column(BigInteger)
     review_text = Column(Text)
 
@@ -118,7 +118,7 @@ class BookAssignment(Base):
 
     id = Column(BigInteger, primary_key=True)
     schedule_type = Column(String, default="chapters")
-    start_date = Column(DateTime, default=func.now())
+    start_date = Column(DateTime(timezone=True), default=func.now())
     done = Column(Boolean, default=False)
     current = Column(Boolean, default=False)
     
@@ -135,7 +135,7 @@ class BookSchedule(Base):
     __tablename__ = 'book_schedule'
 
     id = Column(BigInteger, primary_key=True)
-    due_date = Column(DateTime)
+    due_date = Column(DateTime(timezone=True))
     start = Column(BigInteger)
     end = Column(BigInteger)
 
@@ -167,7 +167,7 @@ class ProgressUpdate(Base):
 
     id = Column(BigInteger, primary_key=True)
 
-    update_date = Column(DateTime, default=func.now())
+    update_date = Column(DateTime(timezone=True), default=func.now())
     progress = Column(BigInteger)  # TODO: Progress in pages? Maybe track as percent? Edition is available.
 
     participation_id = Column(BigInteger, ForeignKey('user_participation.id'))
