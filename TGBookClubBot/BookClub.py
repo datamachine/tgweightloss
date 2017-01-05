@@ -2,16 +2,18 @@
 import configparser
 import logging
 import os.path
-import sqlalchemy.exc
 from functools import wraps, partial
-from sqlalchemy import engine_from_config
-import pytz
-from dateutil.parser import parse as dtparse
 
+import pytz
+import sqlalchemy.exc
+from dateutil.parser import parse as dtparse
+from sqlalchemy import engine_from_config
 from twx import botapi
 from twx.botapi.helpers.update_loop import UpdateLoop, Permission
 
+from TGBookClubBot.goodreads import GoodReadsClient
 from TGBookClubBot.models import *
+
 
 def update_metadata(f):
     @wraps(f)
@@ -30,6 +32,11 @@ class BookClubBot:
 
         self.bot = botapi.TelegramBot(token=self.config['BookClubBot']['bot_token'])
         self.bot.update_bot_info().wait()
+
+        try:
+            self.goodreads = GoodReadsClient(self.config['BookClubBot']['goodreads.key'], self.config['BookClubBot']['goodreads.secret'])
+        except KeyError:
+            self.goodreads = None
 
         self.update_loop = UpdateLoop(self.bot, self)
 
@@ -54,27 +61,97 @@ class BookClubBot:
     # region add_book command
     @update_metadata
     def add_book(self, msg, arguments):
-        query = self.bot.send_message(chat_id=msg.chat.id, text="Author of book to add?",
-                                      reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
-        self.update_loop.register_reply_watch(message=query, function=self.add_book__set_author)
-
-    def add_book__set_author(self, msg):
-        # TODO: Validate text?
         query = self.bot.send_message(chat_id=msg.chat.id, text="Title of book to add?",
                                       reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
-        self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_title, msg.text))
+        self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_title, query.message_id))
 
-    def add_book__set_title(self, author_name, msg):
-        # TODO: Look up the book, maybe another group has entered it?
-        author = DBSession.query(Author).filter(Author.name == author_name).first()  # TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
-                                                                                     # ("Arthur C Clarke" vs "Arthur C. Clarke" vs "Sir Arthur C Clarke")
+    def add_book__set_title(self, original_msg_id, msg):
+        if self.goodreads:
+            # Set typing action for goodreads search
+            self.bot.send_chat_action(chat_id=msg.chat.id, action="typing")
+            possible_books = self.goodreads.search_books(msg.text)
+
+            # TODO: Support a "More" button.
+            keyboard_rows = []
+            for book in possible_books[:5]:
+                title = book['best_book']['title']
+                author = book['best_book']['author']['name']
+                try:
+                    year = book['original_publication_year']['#text']
+                except KeyError:
+                    year = "Unk"
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=f"{title[:30]+(title[30:] and '..')} - {author} ({year})",
+                                                                  callback_data=f"GID:{book['best_book']['id']['#text']}")])
+
+            keyboard_rows.append([botapi.InlineKeyboardButton(text=f"As Entered: {msg.text}", callback_data=msg.text),
+                                  botapi.InlineKeyboardButton(text=f"Cancel", callback_data="CANCEL")])
+
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+            self.bot.edit_message_text(chat_id=msg.chat.id, message_id="original_msg_id", text="sdfsdf")
+            query = self.bot.send_message(chat_id=msg.chat.id, text="Please select book to add. (search results via GoodReads)", reply_markup=keyboard).join().result
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.add_book__select_goodreads, msg), permission=Permission.SameUser)
+
+        else:
+            # No goodreads integration, just take it as text
+            query = self.bot.send_message(chat_id=msg.chat.id, text="Author of book to add?",
+                                          reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_author, msg.text))
+
+    def add_book__select_goodreads(self, msg, cbquery, data):
+        if data == "CANCEL":
+            self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
+                                       text=f"Add canceled.")
+        elif data.startswith("GID:"):
+            goodreads_id = int(data[4:])
+
+            book = self.goodreads.get_book(goodreads_id)
+            try:
+                author = book['authors']['author'][0]  # Pull first author, most always right.
+            except KeyError:
+                author = book['authors']['author']  # Only one author
+
+            author_db = DBSession.query(Author).filter(Author.goodreads_id == author['id']).first()
+            if not author_db:
+                author_db = Author()
+                author_db.name = author['name']
+                author_db.goodreads_id = author['id']
+                DBSession.add(author_db)
+
+            book_db = DBSession.query(Book).filter(Book.goodreads_id == book['id']).first()
+            if not book_db:
+                book_db = Book()
+                book_db.author = author_db
+                book_db.title = book['title']
+                book_db.goodreads_id = book['id']
+                book_db.isbn = book['isbn']
+                DBSession.add(book_db)
+
+            assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id == book_db.id).filter(BookAssignment.chat_id == msg.chat.id).first()
+            if not assignment:
+                assignment = BookAssignment()
+                assignment.book = book_db
+                assignment.chat_id = msg.chat.id
+                DBSession.add(assignment)
+                DBSession.commit()
+
+            text = f"Added `{book_db.friendly_name}`\nfound via [Goodreads]({book['url']})"
+            self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
+                                       text=text, parse_mode="Markdown")
+
+        else:
+            self.add_book__set_author(data, msg)
+
+    def add_book__set_author(self, book_title, msg):
+        author_name = msg.text
+
+        author = DBSession.query(Author).filter(Author.name == author_name).first()
         if not author:
             author = Author()
             author.name = author_name
-
             DBSession.add(author)
 
-        book = DBSession.query(Book).filter(Book.title == msg.text).first()  # TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
+        book = DBSession.query(Book).filter(Book.title == book_title).first()
         if not book:
             book = Book()
             book.author = author
@@ -89,6 +166,9 @@ class BookClubBot:
             DBSession.add(assignment)
             DBSession.commit()
             self.bot.send_message(chat_id=msg.chat.id, text=f"Added book to the group: {book.friendly_name}", reply_to_message_id=msg.message_id)
+
+
+
     # endregion
 
     # region register_ebook command
