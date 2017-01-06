@@ -32,6 +32,8 @@ class BookClubBot:
 
         self.update_loop = UpdateLoop(self.bot, self)
 
+        self.update_loop.register_inline_query_handler(self.inline_query)
+
         # region command registration
         # Admin Commands
         self.update_loop.register_command(name='add_book', permission=Permission.Admin, function=self.add_book)
@@ -548,6 +550,9 @@ class BookClubBot:
             self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
                                        text=f"@{cbquery.sender.username} has quit book {participation.book.friendly_name}!")
     # endregion
+
+    def inline_query(self, query):
+        print(query.query)
 
     def run(self):
         self.update_loop.run()  # Run update loop and register as handler
