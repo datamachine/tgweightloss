@@ -1,3 +1,5 @@
 [BookClubBot]
 bot_token = BOT-TOKEN
+goodreads.key = KEY
+goodreads.secret = SECRET
 sqlalchemy.url = postgresql+psycopg2://bookclub:bookclub@localhost/bookclub

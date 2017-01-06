@@ -2,15 +2,18 @@
 import configparser
 import logging
 import os.path
-import sqlalchemy.exc
 from functools import wraps, partial
-from sqlalchemy import engine_from_config
-import pytz
 
+import pytz
+import sqlalchemy.exc
+from dateutil.parser import parse as dtparse
+from sqlalchemy import engine_from_config
 from twx import botapi
 from twx.botapi.helpers.update_loop import UpdateLoop, Permission
 
+from TGBookClubBot.goodreads import GoodReadsClient
 from TGBookClubBot.models import *
+
 
 def update_metadata(f):
     @wraps(f)
@@ -30,6 +33,11 @@ class BookClubBot:
         self.bot = botapi.TelegramBot(token=self.config['BookClubBot']['bot_token'])
         self.bot.update_bot_info().wait()
 
+        try:
+            self.goodreads = GoodReadsClient(self.config['BookClubBot']['goodreads.key'], self.config['BookClubBot']['goodreads.secret'])
+        except KeyError:
+            self.goodreads = None
+
         self.update_loop = UpdateLoop(self.bot, self)
 
         self.update_loop.register_inline_query_handler(self.inline_query)
@@ -40,7 +48,7 @@ class BookClubBot:
         self.update_loop.register_command(name='start_book', permission=Permission.Admin, function=self.start_book)
         self.update_loop.register_command(name='register_ebook', permission=Permission.Admin, function=self.register_ebook)
         self.update_loop.register_command(name='register_audiobook', permission=Permission.Admin, function=self.register_audiobook)
-        self.update_loop.register_command(name='set_due_date', permission=Permission.Admin, function=self.set_due_date)
+        self.update_loop.register_command(name='set_deadline', permission=Permission.Admin, function=self.set_deadline)
 
         # User Commands
         self.update_loop.register_command(name='get_book', function=self.get_book)
@@ -48,34 +56,104 @@ class BookClubBot:
         self.update_loop.register_command(name='quit_book', function=self.quit_book)
         self.update_loop.register_command(name='set_progress', function=self.set_progress)
         self.update_loop.register_command(name='get_progress',  function=self.get_progress)
-        self.update_loop.register_command(name='get_due_date',  function=self.get_due_date)
+        self.update_loop.register_command(name='get_deadline',  function=self.get_deadline)
         # endregion
 
     # Admin Commands
     # region add_book command
     @update_metadata
     def add_book(self, msg, arguments):
-        query = self.bot.send_message(chat_id=msg.chat.id, text="Author of book to add?",
-                                      reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
-        self.update_loop.register_reply_watch(message=query, function=self.add_book__set_author)
-
-    def add_book__set_author(self, msg):
-        # TODO: Validate text?
         query = self.bot.send_message(chat_id=msg.chat.id, text="Title of book to add?",
                                       reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
-        self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_title, msg.text))
+        self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_title, query.message_id))
 
-    def add_book__set_title(self, author_name, msg):
-        # TODO: Look up the book, maybe another group has entered it?
-        author = DBSession.query(Author).filter(Author.name == author_name).first()  # TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
-                                                                                     # ("Arthur C Clarke" vs "Arthur C. Clarke" vs "Sir Arthur C Clarke")
+    def add_book__set_title(self, original_msg_id, msg):
+        if self.goodreads:
+            # Set typing action for goodreads search
+            self.bot.send_chat_action(chat_id=msg.chat.id, action="typing")
+            possible_books = self.goodreads.search_books(msg.text)
+
+            # TODO: Support a "More" button.
+            keyboard_rows = []
+            for book in possible_books[:5]:
+                title = book['best_book']['title']
+                author = book['best_book']['author']['name']
+                try:
+                    year = book['original_publication_year']['#text']
+                except KeyError:
+                    year = "Unk"
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=f"{title[:30]+(title[30:] and '..')} - {author} ({year})",
+                                                                  callback_data=f"GID:{book['best_book']['id']['#text']}")])
+
+            keyboard_rows.append([botapi.InlineKeyboardButton(text=f"As Entered: {msg.text}", callback_data=msg.text),
+                                  botapi.InlineKeyboardButton(text=f"Cancel", callback_data="CANCEL")])
+
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+            self.bot.edit_message_text(chat_id=msg.chat.id, message_id="original_msg_id", text="sdfsdf")
+            query = self.bot.send_message(chat_id=msg.chat.id, text="Please select book to add. (search results via GoodReads)", reply_markup=keyboard).join().result
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.add_book__select_goodreads, msg), permission=Permission.SameUser)
+
+        else:
+            # No goodreads integration, just take it as text
+            query = self.bot.send_message(chat_id=msg.chat.id, text="Author of book to add?",
+                                          reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_author, msg.text))
+
+    def add_book__select_goodreads(self, msg, cbquery, data):
+        if data == "CANCEL":
+            self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
+                                       text=f"Add canceled.")
+        elif data.startswith("GID:"):
+            goodreads_id = int(data[4:])
+
+            book = self.goodreads.get_book(goodreads_id)
+            try:
+                author = book['authors']['author'][0]  # Pull first author, most always right.
+            except KeyError:
+                author = book['authors']['author']  # Only one author
+
+            author_db = DBSession.query(Author).filter(Author.goodreads_id == author['id']).first()
+            if not author_db:
+                author_db = Author()
+                author_db.name = author['name']
+                author_db.goodreads_id = author['id']
+                DBSession.add(author_db)
+
+            book_db = DBSession.query(Book).filter(Book.goodreads_id == book['id']).first()
+            if not book_db:
+                book_db = Book()
+                book_db.author = author_db
+                book_db.title = book['title']
+                book_db.goodreads_id = book['id']
+                book_db.isbn = book['isbn']
+                DBSession.add(book_db)
+
+            assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id == book_db.id).filter(BookAssignment.chat_id == msg.chat.id).first()
+            if not assignment:
+                assignment = BookAssignment()
+                assignment.book = book_db
+                assignment.chat_id = msg.chat.id
+                DBSession.add(assignment)
+                DBSession.commit()
+
+            text = f"Added `{book_db.friendly_name}`\nfound via [Goodreads]({book['url']})"
+            self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
+                                       text=text, parse_mode="Markdown")
+
+        else:
+            self.add_book__set_author(data, msg)
+
+    def add_book__set_author(self, book_title, msg):
+        author_name = msg.text
+
+        author = DBSession.query(Author).filter(Author.name == author_name).first()
         if not author:
             author = Author()
             author.name = author_name
-
             DBSession.add(author)
 
-        book = DBSession.query(Book).filter(Book.title == msg.text).first()  # TODO: Look up on GoodReads, for both an ID and a bit of fuzzy searching
+        book = DBSession.query(Book).filter(Book.title == book_title).first()
         if not book:
             book = Book()
             book.author = author
@@ -90,6 +168,9 @@ class BookClubBot:
             DBSession.add(assignment)
             DBSession.commit()
             self.bot.send_message(chat_id=msg.chat.id, text=f"Added book to the group: {book.friendly_name}", reply_to_message_id=msg.message_id)
+
+
+
     # endregion
 
     # region register_ebook command
@@ -186,20 +267,81 @@ class BookClubBot:
         self.bot.send_message(chat_id=msg.chat.id, text="Saved!", reply_to_message_id=msg.message_id)
     # endregion
 
-    # region set_due_date command
-    def _set_due_date(self, book_assignment_id, date, end_progress):
+    # region set_deadline command
+    def _set_deadline(self, book_assignment_id, deadline, end_progress):
+        last_schedule = DBSession.query(BookSchedule).filter(BookSchedule.book_assignment_id == book_assignment_id).order_by(BookSchedule.due_date.desc()).first()
+
+        if last_schedule:
+            start = last_schedule.end
+        else:
+            start = 0
+
         new_schedule = BookSchedule()
-        new_schedule.start = 0
+        new_schedule.start = start
         new_schedule.end = end_progress
-        new_schedule.due_date = date
+        new_schedule.due_date = deadline
         new_schedule.book_assignment_id = book_assignment_id
 
         DBSession.add(new_schedule)
         DBSession.commit()
 
     @update_metadata
-    def set_due_date(self, msg, arguments):
-        print(arguments)
+    def set_deadline(self, msg, arguments):
+        current_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
+
+        if len(current_books) == 0:
+            self.bot.send_message(chat_id=msg.chat.id, text="There are no current books to set the due date for.",
+                                  reply_to_message_id=msg.message_id)
+        elif len(current_books) == 1:
+            self.set_deadline__select_book(original_msg_id=msg.message_id, cbquery=None, data=current_books[0].id)
+        else:
+            reply = "Which book do you want to set the due date for?"
+
+            keyboard_rows = []
+            for book_assign in current_books:
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.id))])
+
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+            query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
+                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.set_deadline__select_book, msg), permission=Permission.SameUser)
+
+    def set_deadline__select_book(self, original_msg_id, cbquery, data):
+        book = DBSession.query(BookAssignment).filter(BookAssignment.id == data).first()
+        query = self.bot.send_message(chat_id=book.chat_id, text="When is the next reading deadline?",
+                                      reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=original_msg_id).join().result
+        self.update_loop.register_reply_watch(message=query, function=partial(self.set_deadline__select_deadline, data))
+
+    def set_deadline__select_deadline(self, book_assignment_id, msg):
+        try:
+            deadline = pytz.timezone("US/Pacific").localize(dtparse(msg.text)) # TODO: Proper timezone support #westcoastbestcoast
+        except ValueError:
+            deadline = None
+
+        if deadline is not None:
+            query = self.bot.send_message(chat_id=msg.chat.id, text="What chapter is the next reading deadline?",  # TODO: Support more than chapters in messages
+                                          reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_reply_watch(message=query, function=partial(self.set_deadline__select_progress, deadline, book_assignment_id, query.message_id))
+        else:
+            # TODO: They are still sending more garbage..
+            self.bot.send_message(chat_id=msg.chat.id, text="Sorry, there was an error processing your answer", reply_to_message_id=msg.message_id)
+
+    def set_deadline__select_progress(self, deadline, book_assignment_id, original_msg_id, msg):
+        book = DBSession.query(BookAssignment).filter(BookAssignment.id == book_assignment_id).first().book
+        try:
+            progress = int(msg.text)  # TODO: Another place to improve progress parsing.
+        except ValueError:
+            progress = None
+
+        if progress is not None:
+            self.bot.send_message(chat_id=msg.chat.id,
+                                  text=f"Due date set for {book.friendly_name}: {deadline.strftime('%Y-%m-%d %I:%M %p %Z')}, to read to {progress}.")
+            self._set_deadline(book_assignment_id=book_assignment_id, end_progress=progress, deadline=deadline)
+        else:
+            # TODO: They are still sending more garbage..
+            self.bot.send_message(chat_id=msg.chat.id, text="Sorry, there was an error processing your answer", reply_to_message_id=msg.message_id)
+
     # endregion
 
     # region start_book command
@@ -293,7 +435,6 @@ class BookClubBot:
     def get_progress__select_book(self, cbquery, data):
         self._send_progress(int(data), edit_message_id=cbquery.message.message_id)
 
-        # endregion
     # endregion
 
     # region set_progress command
@@ -385,10 +526,40 @@ class BookClubBot:
 
     # endregion
 
-    # region get_due_date command
+    # region get_deadline command
+    def _send_deadline(self, book_assignment_id, edit_message_id=None):
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == book_assignment_id).one()
+        last_schedule = DBSession.query(BookSchedule).filter(BookSchedule.book_assignment_id == book_assignment_id).order_by(BookSchedule.due_date.desc()).first()
+
+        deadline_text = f"Deadline for {assignment.book.friendly_name} is {last_schedule.end} by {last_schedule.due_date.strftime('%Y-%m-%d %I:%M %p %Z')}"
+
+        if edit_message_id is not None:
+            self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=deadline_text)
+        else:
+            self.bot.send_message(chat_id=assignment.chat_id, text=deadline_text)
+
     @update_metadata
-    def get_due_date(self, msg, arguments):
-        print("Getting due date! " + msg.text)
+    def get_deadline(self, msg, arguments):
+        current_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
+
+        if len(current_books) == 1:
+            self._send_deadline(current_books[0].id)
+        else:
+            reply = "Which book do you want deadline for?"
+
+            keyboard_rows = []
+            for book_assign in current_books:
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.id))])
+
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+            query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
+                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.get_deadline__select_book, permission=Permission.SameUser)
+
+    def get_deadline__select_book(self, cbquery, data):
+        self._send_deadline(int(data), edit_message_id=cbquery.message.message_id)
+
     # endregion
 
     # region get_book command
