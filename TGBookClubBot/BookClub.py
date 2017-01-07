@@ -55,50 +55,55 @@ class BookClubBot:
         self.update_loop.register_command(name='join_book', function=self.join_book)
         self.update_loop.register_command(name='quit_book', function=self.quit_book)
         self.update_loop.register_command(name='set_progress', function=self.set_progress)
-        self.update_loop.register_command(name='get_progress',  function=self.get_progress)
-        self.update_loop.register_command(name='get_deadline',  function=self.get_deadline)
+        self.update_loop.register_command(name='get_progress', function=self.get_progress)
+        self.update_loop.register_command(name='get_deadline', function=self.get_deadline)
         # endregion
 
     # Admin Commands
     # region add_book command
     @update_metadata
     def add_book(self, msg, arguments):
-        query = self.bot.send_message(chat_id=msg.chat.id, text="Title of book to add?",
-                                      reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
-        self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_title, query.message_id))
+        if arguments:
+            self.add_book__set_goodreads(msg, arguments)
+        else:
+            query = self.bot.send_message(chat_id=msg.chat.id, text="Title of book to add?",
+                                          reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_title, query.message_id))
 
     def add_book__set_title(self, original_msg_id, msg):
         if self.goodreads:
-            # Set typing action for goodreads search
-            self.bot.send_chat_action(chat_id=msg.chat.id, action="typing")
-            possible_books = self.goodreads.search_books(msg.text)
-
-            # TODO: Support a "More" button.
-            keyboard_rows = []
-            for book in possible_books[:5]:
-                title = book['best_book']['title']
-                author = book['best_book']['author']['name']
-                try:
-                    year = book['original_publication_year']['#text']
-                except KeyError:
-                    year = "Unk"
-                keyboard_rows.append([botapi.InlineKeyboardButton(text=f"{title[:30]+(title[30:] and '..')} - {author} ({year})",
-                                                                  callback_data=f"GID:{book['best_book']['id']['#text']}")])
-
-            keyboard_rows.append([botapi.InlineKeyboardButton(text=f"As Entered: {msg.text}", callback_data=msg.text),
-                                  botapi.InlineKeyboardButton(text=f"Cancel", callback_data="CANCEL")])
-
-            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
-
-            self.bot.edit_message_text(chat_id=msg.chat.id, message_id="original_msg_id", text="sdfsdf")
-            query = self.bot.send_message(chat_id=msg.chat.id, text="Please select book to add. (search results via GoodReads)", reply_markup=keyboard).join().result
-            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.add_book__select_goodreads, msg), permission=Permission.SameUser)
-
+            self.add_book__set_goodreads(msg, msg.text)
         else:
             # No goodreads integration, just take it as text
             query = self.bot.send_message(chat_id=msg.chat.id, text="Author of book to add?",
                                           reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
             self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_author, msg.text))
+
+    def add_book__set_goodreads(self, original_msg, search):
+        # Set typing action for goodreads search
+        self.bot.send_chat_action(chat_id=original_msg.chat.id, action="typing")
+        possible_books = self.goodreads.search_books(search)
+
+        # TODO: Support a "More" button.
+        keyboard_rows = []
+        for book in possible_books[:5]:
+            title = book['best_book']['title']
+            author = book['best_book']['author']['name']
+            try:
+                year = book['original_publication_year']['#text']
+            except KeyError:
+                year = "Unk"
+            keyboard_rows.append([botapi.InlineKeyboardButton(text=f"{title[:30]+(title[30:] and '..')} - {author} ({year})",
+                                                              callback_data=f"GID:{book['best_book']['id']['#text']}")])
+
+        keyboard_rows.append([botapi.InlineKeyboardButton(text=f"As Entered: {search}", callback_data=original_msg.text),
+                              botapi.InlineKeyboardButton(text=f"Cancel", callback_data="CANCEL")])
+
+        keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+        query = self.bot.send_message(chat_id=original_msg.chat.id, text="Please select book to add. (search results via GoodReads)", reply_markup=keyboard).join().result
+        self.update_loop.register_inline_reply(message=query, srcmsg=original_msg,  function=partial(self.add_book__select_goodreads, original_msg), permission=Permission.SameUser)
+
 
     def add_book__select_goodreads(self, msg, cbquery, data):
         if data == "CANCEL":
@@ -127,6 +132,7 @@ class BookClubBot:
                 book_db.title = book['title']
                 book_db.goodreads_id = book['id']
                 book_db.isbn = book['isbn']
+                book_db.thumb_url = book['small_image_url']
                 DBSession.add(book_db)
 
             assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id == book_db.id).filter(BookAssignment.chat_id == msg.chat.id).first()
@@ -169,8 +175,6 @@ class BookClubBot:
             DBSession.commit()
             self.bot.send_message(chat_id=msg.chat.id, text=f"Added book to the group: {book.friendly_name}", reply_to_message_id=msg.message_id)
 
-
-
     # endregion
 
     # region register_ebook command
@@ -197,7 +201,7 @@ class BookClubBot:
             self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.register_ebook__select_book, msg.message_id), permission=Permission.SameUser)
 
     def register_ebook__select_book(self, original_msg_id, cbquery, data):
-        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id==int(data)).first()
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == int(data)).first()
 
         query = self.bot.send_message(chat_id=cbquery.message.chat.id, text="Gimmie that ebook.",
                                       reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=original_msg_id).join().result
@@ -218,6 +222,7 @@ class BookClubBot:
         DBSession.commit()
 
         self.bot.send_message(chat_id=msg.chat.id, text="Saved!", reply_to_message_id=msg.message_id)
+
     # endregion
 
     # region register_audiobook command
@@ -241,10 +246,11 @@ class BookClubBot:
 
             query = self.bot.send_message(chat_id=msg.chat.id, text="Which book do you want to register an audiobook for?",
                                           reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
-            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.register_audiobook__select_book, msg.message_id), permission=Permission.SameUser)
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.register_audiobook__select_book, msg.message_id),
+                                                   permission=Permission.SameUser)
 
     def register_audiobook__select_book(self, original_msg_id, cbquery, data):
-        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id==int(data)).first()
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == int(data)).first()
 
         query = self.bot.send_message(chat_id=cbquery.message.chat.id, text="Gimmie that audiobook.",
                                       reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=original_msg_id).join().result
@@ -265,6 +271,7 @@ class BookClubBot:
         DBSession.commit()
 
         self.bot.send_message(chat_id=msg.chat.id, text="Saved!", reply_to_message_id=msg.message_id)
+
     # endregion
 
     # region set_deadline command
@@ -315,7 +322,7 @@ class BookClubBot:
 
     def set_deadline__select_deadline(self, book_assignment_id, msg):
         try:
-            deadline = pytz.timezone("US/Pacific").localize(dtparse(msg.text)) # TODO: Proper timezone support #westcoastbestcoast
+            deadline = pytz.timezone("US/Pacific").localize(dtparse(msg.text))  # TODO: Proper timezone support #westcoastbestcoast
         except ValueError:
             deadline = None
 
@@ -347,7 +354,8 @@ class BookClubBot:
     # region start_book command
     @update_metadata
     def start_book(self, msg, arguments):
-        open_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).filter(BookAssignment.current == False).all()
+        open_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).filter(
+            BookAssignment.current == False).all()
         current_book = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.current == True).all()
 
         if len(open_books) == 0:
@@ -372,7 +380,7 @@ class BookClubBot:
             self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.start_book__select_book, permission=Permission.SameUser)
 
     def start_book__select_book(self, cbquery, data):
-        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id==int(data)).first()
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == int(data)).first()
 
         if not assignment:
             self.bot.send_message(chat_id=cbquery.message.chat.id, text="Error starting book, cannot find it in DB.")
@@ -383,6 +391,7 @@ class BookClubBot:
         DBSession.commit()
 
         self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Starting book {assignment.book.friendly_name}.")
+
     # endregion
 
     # User Commands
@@ -390,10 +399,10 @@ class BookClubBot:
     def _send_progress(self, book_assignment_id, edit_message_id=None):
         assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == book_assignment_id).one()
 
-        progress_status = DBSession.query(ProgressUpdate).join(UserParticipation).join(BookAssignment)\
-                                   .filter(BookAssignment.id == book_assignment_id)\
-                                   .filter(UserParticipation.active == True)\
-                                   .order_by(ProgressUpdate.update_date.desc()).all()
+        progress_status = DBSession.query(ProgressUpdate).join(UserParticipation).join(BookAssignment) \
+            .filter(BookAssignment.id == book_assignment_id) \
+            .filter(UserParticipation.active == True) \
+            .order_by(ProgressUpdate.update_date.desc()).all()
 
         # TODO: Super hacky because I cannot figure out the query right now to do what I want
         progress = {}
@@ -446,7 +455,6 @@ class BookClubBot:
         DBSession.add(new_progress)
         DBSession.commit()
 
-
     @update_metadata
     def set_progress(self, msg, arguments):
         try:
@@ -486,7 +494,8 @@ class BookClubBot:
 
             query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
                                           reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
-            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.set_progress__select_book, msg.message_id, progress), permission=Permission.SameUser)
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.set_progress__select_book, msg.message_id, progress),
+                                                   permission=Permission.SameUser)
 
     def set_progress__select_book(self, original_msg_id, progress, cbquery, data):
         book = DBSession.query(UserParticipation).filter(UserParticipation.id == data).first().book
@@ -640,8 +649,8 @@ class BookClubBot:
 
     @update_metadata
     def join_book(self, msg, arguments):
-        open_books = DBSession.query(BookAssignment)\
-            .filter(BookAssignment.chat_id == msg.chat.id)\
+        open_books = DBSession.query(BookAssignment) \
+            .filter(BookAssignment.chat_id == msg.chat.id) \
             .filter(BookAssignment.current == True).all()
         user = User.create_or_get(msg.sender)
         current_books = [participation.book_assignment_id for participation in user.active_participation(msg.chat.id)]
@@ -669,7 +678,7 @@ class BookClubBot:
             self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.join_book__select_book, permission=Permission.SameUser)
 
     def join_book__select_book(self, cbquery, data):
-        assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id==int(data)).first()
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id == int(data)).first()
 
         if not assignment:
             self.bot.answer_callback_query(callback_query_id=cbquery.id, text="Error joining book, cannot find it in DB.")
@@ -678,6 +687,7 @@ class BookClubBot:
 
         self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
                                    text=f"@{cbquery.sender.username} joined book {assignment.book.friendly_name}!")
+
     # endregion
 
     # region quit_book command
@@ -709,7 +719,7 @@ class BookClubBot:
             self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
                                        text=f"Quit canceled.")
         else:
-            participation = DBSession.query(UserParticipation).filter(UserParticipation.id==int(data)).first()
+            participation = DBSession.query(UserParticipation).filter(UserParticipation.id == int(data)).first()
 
             if not participation:
                 self.bot.answer_callback_query(callback_query_id=cbquery.id, text="Error quiting book, cannot find it in DB.")
@@ -720,13 +730,46 @@ class BookClubBot:
 
             self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
                                        text=f"@{cbquery.sender.username} has quit book {participation.book.friendly_name}!")
+
     # endregion
 
     def inline_query(self, query):
-        print(query.query)
+        pass # Commenting out as I do not believe a viable UI is possible with Telegram's API limitations.
+        # if query.query.startswith("progress "):
+        #     progress = int(re.search(r'\d+', query.query).group())
+        #     user = User.create_or_get(query.sender)
+        #     books = user.active_participation()
+        #
+        #     results = []
+        #
+        #     if len(books) == 0:
+        #         pass  # TODO: Some kind of error?
+        #     else:
+        #         for book in books:
+        #             result_text = f"Set progress for {book.book.friendly_name} to {progress} for {book.book_assignment.chat.username or book.book_assignment.chat.title}"
+        #             desc_text = f"Group: {book.book_assignment.chat.username or book.book_assignment.chat.title}, Set Progress: {progress}"
+        #             keyboard_rows = []
+        #             keyboard_rows.append([botapi.InlineKeyboardButton(text=f"test",
+        #                                                               callback_data=f"fdgdfg")])
+        #
+        #             kbd = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+        #             results.append(botapi.InlineQueryResultArticle(id=f"{book.id},{progress}",
+        #                                                            title=book.book.friendly_name,
+        #                                                            description=desc_text,
+        #                                                            input_message_content=botapi.InputTextMessageContent(message_text=result_text),
+        #                                                            reply_markup=kbd,
+        #                                                            thumb_url=book.book.thumb_url
+        #                                                            )
+        #                            )
+        #
+        #     self.bot.answer_inline_query(inline_query_id=query.id,
+        #                                  results=results,
+        #                                  cache_time=0,
+        #                                  is_personal=True)
 
     def run(self):
         self.update_loop.run()  # Run update loop and register as handler
+
 
 if __name__ == '__main__':
     # Run as script

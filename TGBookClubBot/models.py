@@ -75,12 +75,14 @@ class User(Base):
 
         return user
 
+
 class Book(Base):
     __tablename__ = 'book'
 
     id = Column(BigInteger, primary_key=True)
     title = Column(String)
     isbn = Column(String)
+    thumb_url = Column(String)
     goodreads_id = Column(BigInteger)
 
     author_id = Column(BigInteger, ForeignKey('author.id'))
