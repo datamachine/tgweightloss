@@ -581,8 +581,11 @@ class BookClubBot:
         elif info_type == "eBook":
             self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=f"eBook {assignment.book.friendly_name}.")
             self.bot.forward_message(chat_id=assignment.chat_id, from_chat_id=assignment.chat_id, message_id=assignment.ebook_message_id)
-        elif info_type == "Synopsis":
-            self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=f"Synopsis and links for {assignment.book.friendly_name} here.")
+        elif info_type == "Description":
+            book_meta = self.goodreads.get_book(goodreads_id=assignment.book.goodreads_id)
+            desc = book_meta['description'].replace('<br />', '\n')
+            self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, parse_mode="markdown", disable_web_page_preview=True,
+                                       text=f"*{assignment.book.friendly_name}*\n\n```\n{desc}\n```\nvia [Goodreads]({book_meta['url']})")
         else:
             raise Exception("Unknown Book Info String")  # TODO Handle errors better
 
@@ -611,7 +614,8 @@ class BookClubBot:
         book = DBSession.query(BookAssignment).filter(BookAssignment.id == data).first()
         reply = f"What info would you like for {book.book.friendly_name}?"
 
-        buttons = ["Synopsis"]
+        if book.book.goodreads_id:
+            buttons = ["Description"]
         if book.ebook_message_id:
             buttons.append("eBook")
         if book.audiobook_message_id:
