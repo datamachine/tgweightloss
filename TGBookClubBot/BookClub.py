@@ -404,13 +404,15 @@ class BookClubBot:
             .filter(UserParticipation.active == True) \
             .order_by(ProgressUpdate.update_date.desc()).all()
 
+        deadline = DBSession.query(BookSchedule).filter(BookSchedule.book_assignment_id == book_assignment_id).order_by(BookSchedule.due_date.desc()).first()
+
         # TODO: Super hacky because I cannot figure out the query right now to do what I want
         progress = {}
         for status in progress_status:
             if status.participation_id not in progress:
                 progress[status.participation_id] = status
 
-        update_text = f"Progress for {assignment.book.title}:\n"
+        update_text = f"Progress for {assignment.book.title} (read to {deadline.end} by {deadline.due_date.strftime('%m-%d')})\n"
 
         for status in sorted(progress.values(), reverse=True, key=lambda x: x.progress):
             if verbose:
