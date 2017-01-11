@@ -629,7 +629,7 @@ class BookClubBot:
 
         buttons = []
         if book.book.goodreads_id:
-            buttons.append(["Description"])
+            buttons.append("Description")
         if book.ebook_message_id:
             buttons.append("eBook")
         if book.audiobook_message_id:
