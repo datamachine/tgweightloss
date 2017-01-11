@@ -590,10 +590,20 @@ class BookClubBot:
 
         if info_type == "Audiobook":
             self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=f"Forwarding audiobook for {assignment.book.friendly_name}.")
-            self.bot.forward_message(chat_id=assignment.chat_id, from_chat_id=assignment.chat_id, message_id=assignment.audiobook_message_id)
+            query = self.bot.forward_message(chat_id=assignment.chat_id, from_chat_id=assignment.chat_id, message_id=assignment.audiobook_message_id).wait()
+            if isinstance(query, botapi.Error):
+                self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=f"Original message has been deleted, cannot send audiobook.")
+                assignment.audiobook_message_id = None
+                DBSession.add(assignment)
+                DBSession.commit()
         elif info_type == "eBook":
             self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=f"eBook {assignment.book.friendly_name}.")
-            self.bot.forward_message(chat_id=assignment.chat_id, from_chat_id=assignment.chat_id, message_id=assignment.ebook_message_id)
+            query = self.bot.forward_message(chat_id=assignment.chat_id, from_chat_id=assignment.chat_id, message_id=assignment.ebook_message_id)
+            if isinstance(query, botapi.Error):
+                self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=f"Original message has been deleted, cannot send audiobook.")
+                assignment.ebook_message_id = None
+                DBSession.add(assignment)
+                DBSession.commit()
         elif info_type == "Description":
             book_meta = self.goodreads.get_book(goodreads_id=assignment.book.goodreads_id)
             desc = book_meta['description'].replace('<br />', '\n')
