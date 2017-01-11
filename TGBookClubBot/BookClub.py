@@ -627,25 +627,30 @@ class BookClubBot:
         book = DBSession.query(BookAssignment).filter(BookAssignment.id == data).first()
         reply = f"What info would you like for {book.book.friendly_name}?"
 
+        buttons = []
         if book.book.goodreads_id:
-            buttons = ["Description"]
+            buttons.append(["Description"])
         if book.ebook_message_id:
             buttons.append("eBook")
         if book.audiobook_message_id:
             buttons.append("Audiobook")
 
-        keyboard_rows = []
-        for button in buttons:
-            keyboard_rows.append([botapi.InlineKeyboardButton(text=button, callback_data=str(button))])
+        if len(buttons) == 0:
+            reply = f"Current book is {book.book.friendly_name}"
+            keyboard = None
+        else:
+            keyboard_rows = []
+            for button in buttons:
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=button, callback_data=str(button))])
 
-        keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
         if cbquery is not None:
             query = self.bot.edit_message_text(chat_id=msg.chat.id, text=reply,
                                                reply_markup=keyboard, message_id=cbquery.message.message_id).join().result
         else:
             query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
-                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+                                          reply_markup=keyboard).join().result
 
         self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.get_book__select_info_type, data), permission=Permission.SameUser)
 
