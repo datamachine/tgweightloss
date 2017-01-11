@@ -483,7 +483,7 @@ class BookClubBot:
 
                     user = f"@{msg.sender.username}" or f"{msg.sender.first_name} {msg.sender.last_name}"
                     self._set_progress(joined_books[0].id, progress)
-                    self.bot.send_message(chat_id=msg.chat.id, text=f"{user} progress set for {book.friendly_name} to {progress}!")
+                    self.bot.send_message(chat_id=msg.chat.id, text=f"{user} progress set for {book.title} to {progress}!")
 
                 except sqlalchemy.exc.DataError:
                     self.bot.send_message(chat_id=msg.chat.id,
@@ -538,11 +538,11 @@ class BookClubBot:
                 self._set_progress(participation_id, progress)
                 self.bot.send_message(chat_id=msg.chat.id,
                                       reply_markup=botapi.ReplyKeyboardRemove.create(),
-                                      text=f"{user} progress set for {book.friendly_name} to {progress}!")
+                                      text=f"{user} progress set for {book.title} to {progress}!")
             except sqlalchemy.exc.DataError:  # TODO this code is repeated 3 times, centralize, maybe pass chat info into _set_progress?
                 DBSession.rollback()
                 self.bot.send_message(chat_id=msg.chat.id,
-                                      text=f"Error setting progress set for {book.friendly_name}, number may be too large or invalid.",
+                                      text=f"Error setting progress set for {book.title}, number may be too large or invalid.",
                                       reply_to_message_id=msg.message_id)
         else:
             # TODO: They are still sending more garbage.. should we try to strip out any text and just look for a number?
