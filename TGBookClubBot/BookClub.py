@@ -396,7 +396,7 @@ class BookClubBot:
 
     # User Commands
     # region get_progress command
-    def _send_progress(self, book_assignment_id, edit_message_id=None):
+    def _send_progress(self, book_assignment_id, verbose, edit_message_id=None):
         assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == book_assignment_id).one()
 
         progress_status = DBSession.query(ProgressUpdate).join(UserParticipation).join(BookAssignment) \
@@ -410,10 +410,14 @@ class BookClubBot:
             if status.participation_id not in progress:
                 progress[status.participation_id] = status
 
-        update_text = f"Progress for {assignment.book.friendly_name}:\n"
+        update_text = f"Progress for {assignment.book.title}:\n"
 
-        for status in progress.values():
-            update_text += f"{status.participation.user.first_name} {status.participation.user.last_name}: {status.progress} @ {status.update_date.strftime('%Y-%m-%d %I:%M %p %Z')}\n"
+        for status in sorted(progress.values(), reverse=True, key=lambda x: x.progress):
+            if verbose:
+                update_text += f"{status.progress}: {status.participation.user.first_name} {status.participation.user.last_name}" \
+                               f" @ {status.update_date.strftime('%Y-%m-%d %I:%M %p %Z')}\n"
+            else:
+                update_text += f"{status.progress}: {status.participation.user.first_name} {status.participation.user.last_name}\n"
 
         if edit_message_id is not None:
             self.bot.edit_message_text(chat_id=assignment.chat_id, message_id=edit_message_id, text=update_text)
@@ -426,8 +430,10 @@ class BookClubBot:
             .filter(BookAssignment.chat_id == msg.chat.id) \
             .filter(BookAssignment.current == True).all()
 
+        verbose = arguments.strip() == "-v"
+
         if len(open_books) == 1:
-            self._send_progress(open_books[0].id)
+            self._send_progress(open_books[0].id, verbose=verbose)
         else:
             reply = "Which book do you want progress for?"
 
@@ -439,10 +445,10 @@ class BookClubBot:
 
             query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
                                           reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
-            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.get_progress__select_book, permission=Permission.SameUser)
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.get_progress__select_book, verbose), permission=Permission.SameUser)
 
-    def get_progress__select_book(self, cbquery, data):
-        self._send_progress(int(data), edit_message_id=cbquery.message.message_id)
+    def get_progress__select_book(self, verbose, cbquery, data):
+        self._send_progress(int(data), verbose=verbose, edit_message_id=cbquery.message.message_id)
 
     # endregion
 
@@ -472,8 +478,11 @@ class BookClubBot:
             book = joined_books[0].book
             if progress is not None:
                 try:
+
+                    user = f"@{msg.sender.username}" or f"{msg.sender.first_name} {msg.sender.last_name}"
                     self._set_progress(joined_books[0].id, progress)
-                    self.bot.send_message(chat_id=msg.chat.id, text=f"Progress set for {book.friendly_name}!", reply_to_message_id=msg.message_id)
+                    self.bot.send_message(chat_id=msg.chat.id, text=f"{user} progress set for {book.friendly_name} to {progress}!")
+
                 except sqlalchemy.exc.DataError:
                     self.bot.send_message(chat_id=msg.chat.id,
                                           text=f"Error setting progress set for {book.friendly_name}, number may be too large or invalid.",
@@ -493,7 +502,7 @@ class BookClubBot:
             keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
             query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
-                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+                                          reply_markup=keyboard).join().result
             self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.set_progress__select_book, msg.message_id, progress),
                                                    permission=Permission.SameUser)
 
@@ -502,8 +511,9 @@ class BookClubBot:
 
         if progress is not None:
             try:
+                user = f"@{cbquery.sender.username}" or f"{cbquery.sender.first_name} {cbquery.sender.last_name}"
                 self._set_progress(int(data), progress)
-                self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Progress set for {book.friendly_name}!")
+                self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"{user} progress set for {book.title} to {progress}!")
             except sqlalchemy.exc.DataError:
                 self.bot.send_message(chat_id=cbquery.message.chat.id,
                                       text=f"Error setting progress set for {book.friendly_name}, number may be too large or invalid.")
@@ -522,8 +532,11 @@ class BookClubBot:
         if progress is not None:
             book = DBSession.query(UserParticipation).filter(UserParticipation.id == participation_id).first().book
             try:
+                user = f"@{msg.sender.username}" or f"{msg.sender.first_name} {msg.sender.last_name}"
                 self._set_progress(participation_id, progress)
-                self.bot.send_message(chat_id=msg.chat.id, text=f"Progress set for {book.friendly_name}!", reply_to_message_id=msg.message_id)
+                self.bot.send_message(chat_id=msg.chat.id,
+                                      reply_markup=botapi.ReplyKeyboardRemove.create(),
+                                      text=f"{user} progress set for {book.friendly_name} to {progress}!")
             except sqlalchemy.exc.DataError:  # TODO this code is repeated 3 times, centralize, maybe pass chat info into _set_progress?
                 DBSession.rollback()
                 self.bot.send_message(chat_id=msg.chat.id,
