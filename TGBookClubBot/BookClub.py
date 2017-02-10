@@ -415,7 +415,7 @@ class BookClubBot:
 
             query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
                                           reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
-            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.start_book__select_book, permission=Permission.SameUser)
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.close_book__select_book, permission=Permission.SameUser)
 
     def close_book__select_book(self, cbquery, data):
         assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == int(data)).first()
