@@ -327,7 +327,7 @@ class BookClubBot:
             deadline = None
 
         if deadline is not None:
-            query = self.bot.send_message(chat_id=msg.chat.id, text="What chapter is the next reading deadline?",  # TODO: Support more than chapters in messages
+            query = self.bot.send_message(chat_id=msg.chat.id, text="What chapter is the next reading deadline through?",  # TODO: Support more than chapters in messages
                                           reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
             self.update_loop.register_reply_watch(message=query, function=partial(self.set_deadline__select_progress, deadline, book_assignment_id, query.message_id))
         else:
@@ -343,7 +343,7 @@ class BookClubBot:
 
         if progress is not None:
             self.bot.send_message(chat_id=msg.chat.id,
-                                  text=f"Due date set for {book.friendly_name}: {deadline.strftime('%Y-%m-%d %I:%M %p %Z')}, to read to {progress}.")
+                                  text=f"Due date set for {book.friendly_name}: {deadline.strftime('%Y-%m-%d %I:%M %p %Z')}, to read through {progress}.")
             self._set_deadline(book_assignment_id=book_assignment_id, end_progress=progress, deadline=deadline)
         else:
             # TODO: They are still sending more garbage..
@@ -412,7 +412,7 @@ class BookClubBot:
             if status.participation_id not in progress:
                 progress[status.participation_id] = status
 
-        update_text = f"Progress for {assignment.book.title} (read to {deadline.end} by {deadline.due_date.strftime('%m-%d')})\n"
+        update_text = f"Progress for {assignment.book.title} (read through {deadline.end} by {deadline.due_date.strftime('%m-%d')})\n"
 
         for status in sorted(progress.values(), reverse=True, key=lambda x: x.progress):
             if verbose:
@@ -483,7 +483,7 @@ class BookClubBot:
 
                     user = f"@{msg.sender.username}" or f"{msg.sender.first_name} {msg.sender.last_name}"
                     self._set_progress(joined_books[0].id, progress)
-                    self.bot.send_message(chat_id=msg.chat.id, text=f"{user} progress set for {book.title} to {progress}!")
+                    self.bot.send_message(chat_id=msg.chat.id, text=f"{user} progress set for {book.title} through {progress}!")
 
                 except sqlalchemy.exc.DataError:
                     self.bot.send_message(chat_id=msg.chat.id,
@@ -515,7 +515,7 @@ class BookClubBot:
             try:
                 user = f"@{cbquery.sender.username}" or f"{cbquery.sender.first_name} {cbquery.sender.last_name}"
                 self._set_progress(int(data), progress)
-                self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"{user} progress set for {book.title} to {progress}!")
+                self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"{user} progress set for {book.title} through {progress}!")
             except sqlalchemy.exc.DataError:
                 self.bot.send_message(chat_id=cbquery.message.chat.id,
                                       text=f"Error setting progress set for {book.friendly_name}, number may be too large or invalid.")
@@ -538,7 +538,7 @@ class BookClubBot:
                 self._set_progress(participation_id, progress)
                 self.bot.send_message(chat_id=msg.chat.id,
                                       reply_markup=botapi.ReplyKeyboardRemove.create(),
-                                      text=f"{user} progress set for {book.title} to {progress}!")
+                                      text=f"{user} progress set for {book.title} through {progress}!")
             except sqlalchemy.exc.DataError:  # TODO this code is repeated 3 times, centralize, maybe pass chat info into _set_progress?
                 DBSession.rollback()
                 self.bot.send_message(chat_id=msg.chat.id,
