@@ -46,6 +46,7 @@ class BookClubBot:
         # Admin Commands
         self.update_loop.register_command(name='add_book', permission=Permission.Admin, function=self.add_book)
         self.update_loop.register_command(name='start_book', permission=Permission.Admin, function=self.start_book)
+        self.update_loop.register_command(name='close_book', permission=Permission.Admin, function=self.close_book)
         self.update_loop.register_command(name='register_ebook', permission=Permission.Admin, function=self.register_ebook)
         self.update_loop.register_command(name='register_audiobook', permission=Permission.Admin, function=self.register_audiobook)
         self.update_loop.register_command(name='set_deadline', permission=Permission.Admin, function=self.set_deadline)
@@ -393,6 +394,44 @@ class BookClubBot:
         self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Starting book {assignment.book.friendly_name}.")
 
     # endregion
+
+    # region close_book command
+    @update_metadata
+    def close_book(self, msg, arguments):
+        current_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).filter(BookAssignment.current == True).all()
+
+        if len(current_books) == 0:
+            self.bot.send_message(chat_id=msg.chat.id, text="There are no active books to close.",
+                                  reply_to_message_id=msg.message_id)
+        else:
+            reply = "Which book do you want to close?"
+
+            # TODO: Support a "More" button.
+            keyboard_rows = []
+            for book_assign in current_books:
+                keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.id))])
+
+            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+            query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
+                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
+            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=self.start_book__select_book, permission=Permission.SameUser)
+
+    def close_book__select_book(self, cbquery, data):
+        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == int(data)).first()
+
+        if not assignment:
+            self.bot.send_message(chat_id=cbquery.message.chat.id, text="Error closing book, cannot find it in DB.")
+
+        assignment.current = False
+
+        DBSession.add(assignment)
+        DBSession.commit()
+
+        self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Closing book {assignment.book.friendly_name}.")
+
+    # endregion
+
 
     # User Commands
     # region get_progress command
