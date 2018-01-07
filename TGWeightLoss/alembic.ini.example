@@ -29,8 +29,7 @@ script_location = alembic
 # are written from script.py.mako
 # output_encoding = utf-8
 
-sqlalchemy.url = postgresql+psycopg2://bookclub:bookclub@localhost/bookclub
-
+sqlalchemy.url = sqlite:///data/weightloss.db
 
 # Logging configuration
 [loggers]

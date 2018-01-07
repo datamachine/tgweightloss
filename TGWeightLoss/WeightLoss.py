@@ -11,8 +11,10 @@ from sqlalchemy import engine_from_config
 from twx import botapi
 from twx.botapi.helpers.update_loop import UpdateLoop, Permission
 
-from TGBookClubBot.goodreads import GoodReadsClient
-from TGBookClubBot.models import *
+import myfitnesspal
+
+
+from TGWeightLoss.models import *
 
 
 def update_metadata(f):
@@ -25,16 +27,16 @@ def update_metadata(f):
     return wrapper
 
 
-class BookClubBot:
+class WeightLossBot:
     def __init__(self, config):
         self.config = config
-        self.logger = logging.Logger("BookClubBot")
+        self.logger = logging.Logger("WeightLossBot")
 
-        self.bot = botapi.TelegramBot(token=self.config['BookClubBot']['bot_token'])
+        self.bot = botapi.TelegramBot(token=self.config['WeightLossBot']['bot_token'])
         self.bot.update_bot_info().wait()
 
         try:
-            self.goodreads = GoodReadsClient(self.config['BookClubBot']['goodreads.key'], self.config['BookClubBot']['goodreads.secret'])
+            self.mfp = GoodReadsClient(self.config['WeightLossBot']['goodreads.key'], self.config['BookClubBot']['goodreads.secret'])
         except KeyError:
             self.goodreads = None
 
@@ -63,95 +65,20 @@ class BookClubBot:
     # Admin Commands
     # region add_book command
     @update_metadata
-    def add_book(self, msg, arguments):
+    def add_contest(self, msg, arguments):
         if arguments:
             self.add_book__set_goodreads(msg, arguments)
         else:
-            query = self.bot.send_message(chat_id=msg.chat.id, text="Title of book to add?",
+            query = self.bot.send_message(chat_id=msg.chat.id, text="Title of contest to add?",
                                           reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
-            self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_title, query.message_id))
+            self.update_loop.register_reply_watch(message=query, function=partial(self.add_contest__set_title, query.message_id))
 
-    def add_book__set_title(self, original_msg_id, msg):
-        if self.goodreads:
-            self.add_book__set_goodreads(msg, msg.text)
-        else:
-            # No goodreads integration, just take it as text
-            query = self.bot.send_message(chat_id=msg.chat.id, text="Author of book to add?",
-                                          reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
-            self.update_loop.register_reply_watch(message=query, function=partial(self.add_book__set_author, msg.text))
+    def add_contest__set_title(self, original_msg_id, msg):
+        query = self.bot.send_message(chat_id=msg.chat.id, text="Start Date of Contest?",
+                                      reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
+        self.update_loop.register_reply_watch(message=query, function=partial(self.add_contest__set_start_date, msg.text))
 
-    def add_book__set_goodreads(self, original_msg, search):
-        # Set typing action for goodreads search
-        self.bot.send_chat_action(chat_id=original_msg.chat.id, action="typing")
-        possible_books = self.goodreads.search_books(search)
-
-        # TODO: Support a "More" button.
-        keyboard_rows = []
-        for book in possible_books[:5]:
-            title = book['best_book']['title']
-            author = book['best_book']['author']['name']
-            try:
-                year = book['original_publication_year']['#text']
-            except KeyError:
-                year = "Unk"
-            keyboard_rows.append([botapi.InlineKeyboardButton(text=f"{title[:30]+(title[30:] and '..')} - {author} ({year})",
-                                                              callback_data=f"GID:{book['best_book']['id']['#text']}")])
-
-        keyboard_rows.append([botapi.InlineKeyboardButton(text=f"As Entered: {search}", callback_data=original_msg.text),
-                              botapi.InlineKeyboardButton(text=f"Cancel", callback_data="CANCEL")])
-
-        keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
-
-        query = self.bot.send_message(chat_id=original_msg.chat.id, text="Please select book to add. (search results via GoodReads)", reply_markup=keyboard).join().result
-        self.update_loop.register_inline_reply(message=query, srcmsg=original_msg,  function=partial(self.add_book__select_goodreads, original_msg), permission=Permission.SameUser)
-
-
-    def add_book__select_goodreads(self, msg, cbquery, data):
-        if data == "CANCEL":
-            self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
-                                       text=f"Add canceled.")
-        elif data.startswith("GID:"):
-            goodreads_id = int(data[4:])
-
-            book = self.goodreads.get_book(goodreads_id)
-            try:
-                author = book['authors']['author'][0]  # Pull first author, most always right.
-            except KeyError:
-                author = book['authors']['author']  # Only one author
-
-            author_db = DBSession.query(Author).filter(Author.goodreads_id == author['id']).first()
-            if not author_db:
-                author_db = Author()
-                author_db.name = author['name']
-                author_db.goodreads_id = author['id']
-                DBSession.add(author_db)
-
-            book_db = DBSession.query(Book).filter(Book.goodreads_id == book['id']).first()
-            if not book_db:
-                book_db = Book()
-                book_db.author = author_db
-                book_db.title = book['title']
-                book_db.goodreads_id = book['id']
-                book_db.isbn = book['isbn']
-                book_db.thumb_url = book['small_image_url']
-                DBSession.add(book_db)
-
-            assignment = DBSession.query(BookAssignment).filter(BookAssignment.book_id == book_db.id).filter(BookAssignment.chat_id == msg.chat.id).first()
-            if not assignment:
-                assignment = BookAssignment()
-                assignment.book = book_db
-                assignment.chat_id = msg.chat.id
-                DBSession.add(assignment)
-                DBSession.commit()
-
-            text = f"Added `{book_db.friendly_name}`\nfound via [Goodreads]({book['url']})"
-            self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id,
-                                       text=text, parse_mode="Markdown")
-
-        else:
-            self.add_book__set_author(data, msg)
-
-    def add_book__set_author(self, book_title, msg):
+    def add_contest__set_start_date(self, book_title, msg):
         author_name = msg.text
 
         author = DBSession.query(Author).filter(Author.name == author_name).first()
@@ -175,103 +102,6 @@ class BookClubBot:
             DBSession.add(assignment)
             DBSession.commit()
             self.bot.send_message(chat_id=msg.chat.id, text=f"Added book to the group: {book.friendly_name}", reply_to_message_id=msg.message_id)
-
-    # endregion
-
-    # region register_ebook command
-    @update_metadata
-    def register_ebook(self, msg, arguments):
-        open_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).all()
-        if len(open_books) == 0:
-            self.bot.send_message(chat_id=msg.chat.id, text="There are no open books.",
-                                  reply_to_message_id=msg.message_id)
-        elif len(open_books) == 1:
-            query = self.bot.send_message(chat_id=msg.chat.id, text="Gimmie that ebook.",
-                                          reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
-            self.update_loop.register_reply_watch(message=query, function=partial(self.register_ebook__file, open_books[0].id))
-        else:
-            # TODO: Support a "More" button.
-            keyboard_rows = []
-            for book_assign in open_books:
-                keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.book.id))])
-
-            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
-
-            query = self.bot.send_message(chat_id=msg.chat.id, text="Which book do you want to register an ebook for?",
-                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
-            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.register_ebook__select_book, msg.message_id), permission=Permission.SameUser)
-
-    def register_ebook__select_book(self, original_msg_id, cbquery, data):
-        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == int(data)).first()
-
-        query = self.bot.send_message(chat_id=cbquery.message.chat.id, text="Gimmie that ebook.",
-                                      reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=original_msg_id).join().result
-        self.update_loop.register_reply_watch(message=query, function=partial(self.register_ebook__file, data))
-
-        assignment.current = True
-
-        DBSession.add(assignment)
-        DBSession.commit()
-
-        self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Registering ebook for  {assignment.book.friendly_name}.")
-
-    def register_ebook__file(self, assignment_id, msg):
-        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == assignment_id).first()
-        assignment.ebook_message_id = msg.message_id
-
-        DBSession.add(assignment)
-        DBSession.commit()
-
-        self.bot.send_message(chat_id=msg.chat.id, text="Saved!", reply_to_message_id=msg.message_id)
-
-    # endregion
-
-    # region register_audiobook command
-    @update_metadata
-    def register_audiobook(self, msg, arguments):
-        open_books = DBSession.query(BookAssignment).filter(BookAssignment.chat_id == msg.chat.id).filter(BookAssignment.done == False).all()
-        if len(open_books) == 0:
-            self.bot.send_message(chat_id=msg.chat.id, text="There are no open books.",
-                                  reply_to_message_id=msg.message_id)
-        elif len(open_books) == 1:
-            query = self.bot.send_message(chat_id=msg.chat.id, text="Gimmie that audiobook.",
-                                          reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=msg.message_id).join().result
-            self.update_loop.register_reply_watch(message=query, function=partial(self.register_audiobook__file, open_books[0].id))
-        else:
-            # TODO: Support a "More" button.
-            keyboard_rows = []
-            for book_assign in open_books:
-                keyboard_rows.append([botapi.InlineKeyboardButton(text=book_assign.book.friendly_name, callback_data=str(book_assign.book.id))])
-
-            keyboard = botapi.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
-
-            query = self.bot.send_message(chat_id=msg.chat.id, text="Which book do you want to register an audiobook for?",
-                                          reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
-            self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.register_audiobook__select_book, msg.message_id),
-                                                   permission=Permission.SameUser)
-
-    def register_audiobook__select_book(self, original_msg_id, cbquery, data):
-        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == int(data)).first()
-
-        query = self.bot.send_message(chat_id=cbquery.message.chat.id, text="Gimmie that audiobook.",
-                                      reply_markup=botapi.ForceReply.create(selective=True), reply_to_message_id=original_msg_id).join().result
-        self.update_loop.register_reply_watch(message=query, function=partial(self.register_audiobook__file, data))
-
-        assignment.current = True
-
-        DBSession.add(assignment)
-        DBSession.commit()
-
-        self.bot.edit_message_text(chat_id=cbquery.message.chat.id, message_id=cbquery.message.message_id, text=f"Registering audiobook for  {assignment.book.friendly_name}.")
-
-    def register_audiobook__file(self, assignment_id, msg):
-        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == assignment_id).first()
-        assignment.audiobook_message_id = msg.message_id
-
-        DBSession.add(assignment)
-        DBSession.commit()
-
-        self.bot.send_message(chat_id=msg.chat.id, text="Saved!", reply_to_message_id=msg.message_id)
 
     # endregion
 
