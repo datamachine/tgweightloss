@@ -1,3 +1,9 @@
+mfp_summary - Shows goals for current open challenge in channel
+add_contest - Adds new challenge(note: what about previous active Challenge?)
+lossage - Shows the current week's update and calculates lbs lost(Arguments for single person or previous weeks?)
+
+
+#OLD:
 add_book - Add new book to group list
 start_book - Set active book in group list
 register_ebook - Set the ebook for the active book

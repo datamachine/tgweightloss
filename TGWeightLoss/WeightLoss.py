@@ -56,7 +56,7 @@ class WeightLossBot:
         # User Commands
         # self.update_loop.register_command(name='join_book', function=self.join_contest)
         # self.update_loop.register_command(name='set_progress', function=self.set_progress)
-        # self.update_loop.register_command(name='get_progress', function=self.get_progress)
+        self.update_loop.register_command(name='get_progress', function=self.get_progress)
         # self.update_loop.register_command(name='get_deadline', function=self.get_deadline)
         self.update_loop.register_command(name='mfp_summary', function=self.get_mfp_summary)
         # endregion
@@ -122,16 +122,16 @@ class WeightLossBot:
 
     # User Commands
     # region get_progress command
-    """
-    def _send_progress(self, book_assignment_id, verbose, edit_message_id=None):
-        assignment = DBSession.query(BookAssignment).filter(BookAssignment.id == book_assignment_id).one()
 
-        progress_status = DBSession.query(ProgressUpdate).join(UserParticipation).join(BookAssignment) \
-            .filter(BookAssignment.id == book_assignment_id) \
+    def _send_progress(self, contest_id, verbose, edit_message_id=None):
+        assignment = DBSession.query(contest).filter(contest.id == contest_id).one()
+
+        progress_status = DBSession.query(ProgressUpdate).join(UserParticipation).join(contest) \
+            .filter(contest.id == contest_id) \
             .filter(UserParticipation.active == True) \
             .order_by(ProgressUpdate.update_date.desc()).all()
 
-        deadline = DBSession.query(BookSchedule).filter(BookSchedule.book_assignment_id == book_assignment_id).order_by(BookSchedule.due_date.desc()).first()
+        deadline = DBSession.query(contestSchedule).filter(contestSchedule.contest_id == contest_id).order_by(contestSchedule.due_date.desc()).first()
 
         # TODO: Super hacky because I cannot figure out the query right now to do what I want
         progress = {}
@@ -139,7 +139,7 @@ class WeightLossBot:
             if status.participation_id not in progress:
                 progress[status.participation_id] = status
 
-        update_text = f"Progress for {assignment.book.title} (read through {deadline.end} by {deadline.due_date.strftime('%m-%d')})\n"
+        update_text = f"Progress for {assignment.contest.title} (read through {deadline.end} by {deadline.due_date.strftime('%m-%d')})\n"
 
         for status in sorted(progress.values(), reverse=True, key=lambda x: x.progress):
             if verbose:
@@ -155,13 +155,15 @@ class WeightLossBot:
 
     @update_metadata
     def get_progress(self, msg, arguments):
-        open_books = DBSession.query(BookAssignment) \
-            .filter(BookAssignment.chat_id == msg.chat.id) \
-            .filter(BookAssignment.current == True).all()
+        open_contest = DBSession.query(contest) \
+            .filter(contest.chat_id == msg.chat.id) \
+            .filter(contest.current == True).all()
 
         verbose = arguments.strip() == "-v"
-
-        if len(open_books) == 1:
+        self._send_progress(open_books[0].id, verbose=verbose)
+        
+        """
+        if len(open_contest) == 1:
             self._send_progress(open_books[0].id, verbose=verbose)
         else:
             reply = "Which book do you want progress for?"
@@ -175,12 +177,13 @@ class WeightLossBot:
             query = self.bot.send_message(chat_id=msg.chat.id, text=reply,
                                           reply_markup=keyboard, reply_to_message_id=msg.message_id).join().result
             self.update_loop.register_inline_reply(message=query, srcmsg=msg, function=partial(self.get_progress__select_book, verbose), permission=Permission.SameUser)
-
+        """
     def get_progress__select_book(self, verbose, cbquery, data):
         self._send_progress(int(data), verbose=verbose, edit_message_id=cbquery.message.message_id)
 
     # endregion
 
+    """
     # region set_progress command
     def _set_progress(self, participation_id, progress):
         new_progress = ProgressUpdate()
