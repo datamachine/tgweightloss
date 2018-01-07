@@ -1,5 +1,5 @@
 [BookClubBot]
 bot_token = BOT-TOKEN
-goodreads.key = KEY
-goodreads.secret = SECRET
+myfitnesspal.user = USERNAME
+gsheets.key = GOOGLE_SHEET_KEY
 sqlalchemy.url = sqlite:///data/weightloss.db
