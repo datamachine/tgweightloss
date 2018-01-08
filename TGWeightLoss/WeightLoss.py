@@ -38,14 +38,11 @@ class WeightLossBot:
         self.bot.update_bot_info().wait()
 
         try:
-            self.mfp = myfitnesspal.Client(self.config['WeightLossBot']['myfitnesspal.user'], input("MFP Pass?"))
+            self.mfp = myfitnesspal.Client(self.config['WeightLossBot']['myfitnesspal.user'], self.config['WeightLossBot']['myfitnesspal.pass'])
         except KeyError:
             self.mfp = None
 
-        scope = ['https://spreadsheets.google.com/feeds']
-        credentials = ServiceAccountCredentials.from_json_keyfile_name('gsheets_oauth.json', scope)
-        gc = gspread.authorize(credentials)
-        self.worksheet = gc.open_by_key(self.config['WeightLossBot']['gsheets.key'])
+        self.refresh_gsheet_auth()
 
         self.update_loop = UpdateLoop(self.bot, self)
 
@@ -60,6 +57,12 @@ class WeightLossBot:
         # self.update_loop.register_command(name='get_deadline', function=self.get_deadline)
         self.update_loop.register_command(name='mfp_summary', function=self.get_mfp_summary)
         # endregion
+
+    def refresh_gsheet_auth(self):
+        scope = ['https://spreadsheets.google.com/feeds']
+        credentials = ServiceAccountCredentials.from_json_keyfile_name('gsheets_oauth.json', scope)
+        gc = gspread.authorize(credentials)
+        self.worksheet = gc.open_by_key(self.config['WeightLossBot']['gsheets.key'])
 
     # Admin Commands
     # region add_contest command
@@ -530,6 +533,7 @@ class WeightLossBot:
 """
 
     def get_mfp_summary(self, msg, arguments):
+        print("summary")
         try:
             summary_date = pytz.timezone("US/Pacific").localize(dtparse(arguments))  # TODO: Proper timezone support #westcoastbestcoast
         except ValueError:
@@ -537,18 +541,34 @@ class WeightLossBot:
 
         message = f"MFP Summary for {summary_date.strftime('%Y-%m-%d')}:\n\n"
 
-        for user in self._get_participants():
+        try:
+            users = self._get_participants()
+        except:
+            self.refresh_gsheet_auth()
+            users = self._get_participants()
+
+        message += "```\n"
+
+        for user in users:
             if user['mfp'].strip() == "":
                 message += f"{user['name']}: NO MFP SET\n"
             else:
                 try:
                     mfp_username = user['mfp'].split('/')[-1]
-                    data = self.mfp.get_date(summary_date, username=mfp_username).totals
-                    message += f"{user['name']}: Cals: {data['calories']}/{user['goal_calories']}, NetCarbs: {data['carbohydrates']-data['fiber']}/{user['goal_carbs']}, Fat: {data['fat']}/{user['goal_fat']}, Fat: {data['protein']}/{user['goal_protein']} \n"
+
+                    day = self.mfp.get_date(summary_date, username=mfp_username)
+                    totals = day.totals
+                    message += f"{user['name']} tracked {len(list(day.entries))} entries across {len([x for x in day.meals if len(list(x.entries))>0])} meals:"\
+                               f"\n    Cals: {totals['calories']}/{user['goal_calories']} {'❌' if totals['calories'] > int(user['goal_calories']) else '✅'}" \
+                               f"\n    NetCarbs: {totals['carbohydrates']-totals['fiber']}/{user['goal_carbs']} {'❌' if totals['carbohydrates']-totals['fiber'] > int(user['goal_carbs']) else '✅'}" \
+                               f"\n    Fat: {totals['fat']}/{user['goal_fat']} {'❌' if totals['fat'] > int(user['goal_fat']) else '✅'}" \
+                               f"\n    Protein: {totals['protein']}/{user['goal_protein']} {'❌' if totals['protein'] > int(user['goal_protein']) else '✅'}\n"
                 except:
                     message += f"{user['name']}: Nothing Logged, FOR SHAME\n"
 
-        self.bot.send_message(chat_id=msg.chat.id, text=message)
+        message += "```\n"
+        print(message)
+        self.bot.send_message(chat_id=msg.chat.id, text=message, parse_mode="Markdown")
 
     def _get_participants(self):
         """
