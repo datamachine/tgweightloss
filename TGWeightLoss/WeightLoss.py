@@ -533,7 +533,6 @@ class WeightLossBot:
 """
 
     def get_mfp_summary(self, msg, arguments):
-        print("summary")
         try:
             summary_date = pytz.timezone("US/Pacific").localize(dtparse(arguments))  # TODO: Proper timezone support #westcoastbestcoast
         except ValueError:
@@ -558,12 +557,33 @@ class WeightLossBot:
 
                     day = self.mfp.get_date(summary_date, username=mfp_username)
                     totals = day.totals
+
+                    allowed_variance = 1.15
+
+                    calorie_status = '❌' if totals['calories'] > (user['goal_calories']*allowed_variance) else '✅'
+
+                    if user['goal_carbs_direction'] == 'Max':
+                        carb_status = '❌' if (totals['carbohydrates']-totals['fiber']) > (user['goal_carbs'] * allowed_variance) else '✅'
+                    else:
+                        carb_status = '❌' if ((totals['carbohydrates'] - totals['fiber']) * allowed_variance) < user['goal_carbs'] else '✅'
+
+                    if user['goal_fat_direction'] == 'Max':
+                        fat_status = '❌' if totals['fat'] > (user['goal_fat'] * allowed_variance) else '✅'
+                    else:
+                        fat_status = '❌' if (totals['fat'] * allowed_variance) < user['goal_fat'] else '✅'
+
+                    if user['goal_protein_direction'] == 'Max':
+                        protein_status = '❌' if totals['protein'] > (user['goal_protein'] * allowed_variance) else '✅'
+                    else:
+                        protein_status = '❌' if (totals['protein'] * allowed_variance) < user['goal_protein'] else '✅'
+
+
                     message += f"{user['name']} tracked {len(list(day.entries))} entries across {len([x for x in day.meals if len(list(x.entries))>0])} meals:"\
-                               f"\n    Cals: {totals['calories']}/{user['goal_calories']} {'❌' if totals['calories'] > int(user['goal_calories']) else '✅'}" \
-                               f"\n    NetCarbs: {totals['carbohydrates']-totals['fiber']}/{user['goal_carbs']} {'❌' if totals['carbohydrates']-totals['fiber'] > int(user['goal_carbs']) else '✅'}" \
-                               f"\n    Fat: {totals['fat']}/{user['goal_fat']} {'❌' if totals['fat'] > int(user['goal_fat']) else '✅'}" \
-                               f"\n    Protein: {totals['protein']}/{user['goal_protein']} {'❌' if totals['protein'] > int(user['goal_protein']) else '✅'}\n"
-                except:
+                               f"\n    Cals: {totals['calories']}/{user['goal_calories']} {calorie_status}" \
+                               f"\n    NetCarbs: {totals['carbohydrates']-totals['fiber']}/{user['goal_carbs']} {carb_status}" \
+                               f"\n    Fat: {totals['fat']}/{user['goal_fat']} {fat_status}" \
+                               f"\n    Protein: {totals['protein']}/{user['goal_protein']} {protein_status}\n"
+                except Exception as e:
                     message += f"{user['name']}: Nothing Logged, FOR SHAME\n"
 
         message += "```\n"
@@ -576,15 +596,22 @@ class WeightLossBot:
         :return:
         """
         users = []
+
+
+
         for row in range(2, 8):
+            data = self.worksheet.worksheet("Goals").row_values(row)
             users.append({
-                'name': self.worksheet.worksheet("Goals").cell(row, '1').value,
-                'telegram': self.worksheet.worksheet("Goals").cell(row, '12').value,
-                'mfp': self.worksheet.worksheet("Goals").cell(row, '13').value,
-                'goal_calories': self.worksheet.worksheet("Goals").cell(row, '8').value,
-                'goal_carbs': self.worksheet.worksheet("Goals").cell(row, '9').value,
-                'goal_fat': self.worksheet.worksheet("Goals").cell(row, '10').value,
-                'goal_protein': self.worksheet.worksheet("Goals").cell(row, '11').value,
+                'name': data[0],
+                'telegram': data[14],
+                'mfp': data[15],
+                'goal_calories': int(data[7]),
+                'goal_carbs': int(data[8]),
+                'goal_carbs_direction': data[9],
+                'goal_fat': int(data[10]),
+                'goal_fat_direction': data[11],
+                'goal_protein': int(data[12]),
+                'goal_protein_direction': data[13],
             })
 
         return users
