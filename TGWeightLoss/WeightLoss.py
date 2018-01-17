@@ -558,24 +558,24 @@ class WeightLossBot:
                     day = self.mfp.get_date(summary_date, username=mfp_username)
                     totals = day.totals
 
-                    allowed_variance = 1.15
+                    allowed_variance = 0.15
 
-                    calorie_status = '❌' if totals['calories'] > (user['goal_calories']*allowed_variance) else '✅'
+                    calorie_status = '❌' if totals['calories'] > (user['goal_calories'] * (1 + allowed_variance)) else '✅'
 
                     if user['goal_carbs_direction'] == 'Max':
-                        carb_status = '❌' if (totals['carbohydrates']-totals['fiber']) > (user['goal_carbs'] * allowed_variance) else '✅'
+                        carb_status = '❌' if (totals['carbohydrates'] - totals['fiber']) > (user['goal_carbs'] * (1 + allowed_variance)) else '✅'
                     else:
-                        carb_status = '❌' if ((totals['carbohydrates'] - totals['fiber']) * allowed_variance) < user['goal_carbs'] else '✅'
+                        carb_status = '❌' if (totals['carbohydrates'] - totals['fiber']) < (user['goal_carbs'] * (1 - allowed_variance)) else '✅'
 
                     if user['goal_fat_direction'] == 'Max':
-                        fat_status = '❌' if totals['fat'] > (user['goal_fat'] * allowed_variance) else '✅'
+                        fat_status = '❌' if totals['fat'] > (user['goal_fat'] * (1 + allowed_variance)) else '✅'
                     else:
-                        fat_status = '❌' if (totals['fat'] * allowed_variance) < user['goal_fat'] else '✅'
+                        fat_status = '❌' if totals['fat'] < (user['goal_fat'] * (1 - allowed_variance)) else '✅'
 
                     if user['goal_protein_direction'] == 'Max':
-                        protein_status = '❌' if totals['protein'] > (user['goal_protein'] * allowed_variance) else '✅'
+                        protein_status = '❌' if totals['protein'] > (user['goal_protein'] * (1 + allowed_variance)) else '✅'
                     else:
-                        protein_status = '❌' if (totals['protein'] * allowed_variance) < user['goal_protein'] else '✅'
+                        protein_status = '❌' if totals['protein'] < (user['goal_protein'] * (1 - allowed_variance)) else '✅'
 
 
                     message += f"{user['name']} tracked {len(list(day.entries))} entries across {len([x for x in day.meals if len(list(x.entries))>0])} meals:"\
