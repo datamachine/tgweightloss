@@ -597,21 +597,20 @@ class WeightLossBot:
         """
         users = []
 
+        sheet_data = self.worksheet.worksheet("Goals").get_all_values()
 
-
-        for row in range(2, 8):
-            data = self.worksheet.worksheet("Goals").row_values(row)
+        for row in sheet_data[1:7]:
             users.append({
-                'name': data[0],
-                'telegram': data[14],
-                'mfp': data[15],
-                'goal_calories': int(data[7]),
-                'goal_carbs': int(data[8]),
-                'goal_carbs_direction': data[9],
-                'goal_fat': int(data[10]),
-                'goal_fat_direction': data[11],
-                'goal_protein': int(data[12]),
-                'goal_protein_direction': data[13],
+                'name': row[0],
+                'telegram': row[14],
+                'mfp': row[15],
+                'goal_calories': int(row[7]),
+                'goal_carbs': int(row[8]),
+                'goal_carbs_direction': row[9],
+                'goal_fat': int(row[10]),
+                'goal_fat_direction': row[11],
+                'goal_protein': int(row[12]),
+                'goal_protein_direction': row[13],
             })
 
         return users
