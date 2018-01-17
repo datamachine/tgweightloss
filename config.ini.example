@@ -1,4 +1,4 @@
-[BookClubBot]
+[WeightLossBot]
 bot_token = BOT-TOKEN
 myfitnesspal.user = USERNAME
 gsheets.key = GOOGLE_SHEET_KEY
