@@ -37,10 +37,8 @@ class WeightLossBot:
         self.bot = botapi.TelegramBot(token=self.config['WeightLossBot']['bot_token'])
         self.bot.update_bot_info().wait()
 
-        try:
-            self.mfp = myfitnesspal.Client(self.config['WeightLossBot']['myfitnesspal.user'], self.config['WeightLossBot']['myfitnesspal.pass'])
-        except KeyError:
-            self.mfp = None
+
+        self.mfp = myfitnesspal.Client(self.config['WeightLossBot']['myfitnesspal.user'], self.config['WeightLossBot']['myfitnesspal.pass'])
 
         self.refresh_gsheet_auth()
 
@@ -533,6 +531,8 @@ class WeightLossBot:
 """
 
     def get_mfp_summary(self, msg, arguments):
+        self.mfp._login()  # hack to refresh login, need to improve library to prevent this need.
+
         try:
             summary_date = pytz.timezone("US/Pacific").localize(dtparse(arguments))  # TODO: Proper timezone support #westcoastbestcoast
         except ValueError:
