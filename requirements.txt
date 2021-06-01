@@ -27,5 +27,5 @@ SQLAlchemy==1.2.0
 sympy==0.7.6.1
 -e git://github.com/datamachine/twx.botapi.git@2afe942f540852189ec917a24d85d731c1bbbf81#egg=twx.botapi
 uritemplate==3.0.0
-urllib3==1.22
+urllib3==1.26.5
 wcwidth==0.1.7
